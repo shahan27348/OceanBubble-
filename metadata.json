@@ -1,0 +1,7 @@
+{
+  "name": "Ocean Bubbles",
+  "description": "A fun webcam-controlled bubble shooter game set in an ocean theme with hand gesture controls.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

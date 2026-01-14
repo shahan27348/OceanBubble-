@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    margin: 0;
+    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+  
+  * {
+    box-sizing: border-box;
+  }
+}
+
+/* Ocean Wave Animation */
+@keyframes wave {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.wave-animation {
+  animation: wave 3s ease-in-out infinite;
+}
+
+/* Bubble Float Animation */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-20px) rotate(5deg);
+  }
+}
+
+.float-animation {
+  animation: float 4s ease-in-out infinite;
+}
+
+/* Shimmer Effect for Ocean Theme */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.shimmer {
+  animation: shimmer 3s linear infinite;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 100%
+  );
+  background-size: 1000px 100%;
+}
+
+/* Floating Water Bubbles Background */
+@keyframes floatUp {
+  0% {
+    transform: translateY(100vh) scale(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.6;
+  }
+  90% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(-100vh) scale(1);
+    opacity: 0;
+  }
+}
+
+.bubble-float {
+  position: absolute;
+  bottom: -100px;
+  width: 40px;
+  height: 40px;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.3), rgba(79, 195, 247, 0.1));
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  animation: floatUp 15s infinite ease-in;
+  box-shadow: 
+    inset 0 0 20px rgba(255, 255, 255, 0.2),
+    0 0 30px rgba(79, 195, 247, 0.3);
+}
+
+.bubble-float::before {
+  content: '';
+  position: absolute;
+  top: 10%;
+  left: 20%;
+  width: 30%;
+  height: 30%;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  filter: blur(3px);
+}
+
+.bubble-float:nth-child(2) {
+  width: 60px;
+  height: 60px;
+  animation-duration: 18s;
+}
+
+.bubble-float:nth-child(3) {
+  width: 30px;
+  height: 30px;
+  animation-duration: 12s;
+}
+
+.bubble-float:nth-child(4) {
+  width: 50px;
+  height: 50px;
+  animation-duration: 20s;
+}
+
+.bubble-float:nth-child(5) {
+  width: 35px;
+  height: 35px;
+  animation-duration: 16s;
+}
+
+.bubble-float:nth-child(6) {
+  width: 45px;
+  height: 45px;
+  animation-duration: 14s;
+}
+
+.bubble-float:nth-child(7) {
+  width: 55px;
+  height: 55px;
+  animation-duration: 19s;
+}
