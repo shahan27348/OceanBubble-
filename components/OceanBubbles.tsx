@@ -18,7 +18,16 @@ import {
   SavedState,
   Screen,
 } from "../types";
-import { COLOR_CONFIG, ENDLESS, GESTURE, GRID, LEVELS, PHYSICS, adjustColor } from "../gameConfig";
+import {
+  COLOR_CONFIG,
+  COMBO_WINDOW_MS,
+  ENDLESS,
+  GESTURE,
+  GRID,
+  LEVELS,
+  PHYSICS,
+  adjustColor,
+} from "../gameConfig";
 import {
   Ball,
   Layout,
@@ -137,6 +146,8 @@ const OceanBubbles: React.FC = () => {
   const [pressure, setPressure] = useState(0);
   const [hasFired, setHasFired] = useState(false);
   const [roundActive, setRoundActive] = useState(false);
+  /** True while the slingshot is pulled back; fades the HUD under the ball. */
+  const [aiming, setAiming] = useState(false);
 
   /* ------------------------------------------------------------- Tracking */
 
@@ -426,7 +437,7 @@ const OceanBubbles: React.FC = () => {
         bestComboRef.current,
         Math.min(outcome.combo, MAX_MULTIPLIER)
       );
-      comboExpiry.current = simTime.current + 3000;
+      comboExpiry.current = simTime.current + COMBO_WINDOW_MS;
       setCombo(outcome.combo);
       setComboFlash(true);
       window.setTimeout(() => setComboFlash(false), 400);
@@ -734,6 +745,7 @@ const OceanBubbles: React.FC = () => {
 
   const hoverIdRef = useRef<string | null>(null);
   const pressureRef = useRef(0);
+  const aimingRef = useRef(false);
   const dwellRef = useRef(0);
   const lastCursor = useRef({ x: -999, y: -999, pressed: false });
 
@@ -962,6 +974,11 @@ const OceanBubbles: React.FC = () => {
           aimHistory.current = [];
           resetBall();
         }
+      }
+
+      if (isDragging.current !== aimingRef.current) {
+        aimingRef.current = isDragging.current;
+        setAiming(isDragging.current);
       }
 
       if (!isDragging.current && !isFlying.current) {
@@ -1338,8 +1355,14 @@ const OceanBubbles: React.FC = () => {
                 <DangerGauge pressure={pressure} />
               </div>
 
-              {/* Bottom: ammo + colours */}
-              <div className="absolute bottom-5 left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-3 md:bottom-7">
+              {/* Bottom: ammo + colours. Fades while aiming, since pulling the
+                  slingshot down drags the ball underneath it. */}
+              <div
+                data-testid="bottom-hud"
+                className={`absolute bottom-5 left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-3 transition-opacity duration-200 md:bottom-7 ${
+                  aiming ? "pointer-events-none opacity-25" : "opacity-100"
+                }`}
+              >
                 <AmmoGauge remaining={ballsRemaining ?? 0} limit={currentLevel?.ballsLimit ?? null} />
                 <ColorSelector
                   pair={colorPair}

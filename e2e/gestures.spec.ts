@@ -70,9 +70,12 @@ test("pinch, pull back and release fires the slingshot", async ({ page, hand }) 
   await page.waitForTimeout(150);
   await hand.glideTo(a.x - 20, a.y + 130, true, 400);
   await page.waitForTimeout(200);
+  // The HUD under the pulled-back ball fades so the ball stays visible.
+  await expect(page.getByTestId("bottom-hud")).toHaveClass(/opacity-25/);
   await hand.open();
 
   await expect(page.getByTestId("ammo")).toHaveAttribute("data-remaining", "9");
+  await expect(page.getByTestId("bottom-hud")).toHaveClass(/opacity-100/);
   await expect(page.getByText(/Pinch near the bubble/)).toHaveCount(0);
 });
 

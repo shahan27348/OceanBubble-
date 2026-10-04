@@ -28,3 +28,6 @@ coverage
 test-results
 playwright-report
 blob-report
+
+# Generated promo media (scripts/capture-media.ts)
+promo

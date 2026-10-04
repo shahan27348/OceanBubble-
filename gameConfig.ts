@@ -143,6 +143,12 @@ export const GESTURE = {
   dragLostMs: 1200,
 } as const;
 
+/**
+ * How long a combo survives between popping shots (simulation time). Aiming by
+ * hand takes a few seconds per shot, so a tight window made chains impossible.
+ */
+export const COMBO_WINDOW_MS = 8000;
+
 /** Star thresholds as a fraction of the level's ball budget left over. */
 export const STAR_THRESHOLDS = [0, 0.2, 0.45] as const;
 
