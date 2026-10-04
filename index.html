@@ -2,46 +2,40 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Ocean Bubbles</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <!-- MediaPipe Dependencies - Using specific stable versions -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils@0.6.1675466098/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
-    <style>
-      body {
-        margin: 0;
-        background-color: #121212; /* Material Dark Background */
-        color: #e3e3e3;
-        overflow: hidden;
-        font-family: 'Roboto', sans-serif;
-      }
-      canvas {
-        transform: scaleX(-1); /* Mirror effect for natural feel */
-      }
-      video {
-        transform: scaleX(-1); /* Mirror effect for natural feel */
-        display: none; /* We draw video to canvas, so hide original */
-      }
-    </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#04121f" />
+    <meta
+      name="description"
+      content="An underwater bubble shooter you play with your hands — pinch, pull back and release in front of your webcam. Mouse and touch work too."
+    />
+    <meta property="og:title" content="Ocean Bubbles — Gesture Bubble Shooter" />
+    <meta
+      property="og:description"
+      content="Pinch, pull back and release to free the trapped fish. Hand-tracked with your webcam."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Ocean Bubbles — Gesture Bubble Shooter</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <!-- MediaPipe Hands ships as a classic script, not an ES module. The version
+         is pinned and must match MEDIAPIPE_HANDS_VERSION in services/handTracker.ts,
+         which loads the matching WASM and model files. -->
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js"
+      crossorigin="anonymous"
+    ></script>
+  </head>
   <body>
+    <noscript>Ocean Bubbles needs JavaScript to run.</noscript>
     <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <script type="module" src="/index.tsx"></script>
+  </body>
 </html>

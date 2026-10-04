@@ -1,146 +1,264 @@
+/**
+ * Ocean Bubbles — "Bioluminescent Abyss" design system.
+ *
+ * Tailwind is compiled at build time (tailwind.config.js); below the
+ * directives this file holds base styles, design tokens and the multi-layer
+ * effects that are impractical to express as utility classes.
+ */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    margin: 0;
-    font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    overflow: hidden;
-  }
-  
-  * {
-    box-sizing: border-box;
-  }
+:root {
+  --abyss-950: #02090f;
+  --abyss-900: #04121f;
+  --abyss-800: #071c2e;
+  --abyss-700: #0a2740;
+  --abyss-600: #0e3552;
+
+  --glow-cyan: #4fc3f7;
+  --glow-aqua: #26c6da;
+  --glow-coral: #ff6b9d;
+  --glow-pearl: #ffd54f;
+  --glow-jelly: #7e57c2;
+  --glow-star: #ffab40;
+
+  --glass-fill: rgba(10, 39, 64, 0.55);
+  --glass-stroke: rgba(79, 195, 247, 0.22);
+  --glass-blur: 18px;
+
+  --hud-gap: clamp(0.75rem, 2vw, 1.5rem);
 }
 
-/* Ocean Wave Animation */
-@keyframes wave {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
+* {
+  box-sizing: border-box;
 }
 
-.wave-animation {
-  animation: wave 3s ease-in-out infinite;
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--abyss-950);
+  color: #e6f4fb;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-/* Bubble Float Animation */
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0px) rotate(0deg);
-  }
-  50% {
-    transform: translateY(-20px) rotate(5deg);
-  }
+#root {
+  height: 100%;
 }
 
-.float-animation {
-  animation: float 4s ease-in-out infinite;
+/* Keyboard users get a visible focus ring; pointer and gesture users don't. */
+:focus-visible {
+  outline: 2px solid var(--glow-cyan);
+  outline-offset: 3px;
 }
 
-/* Shimmer Effect for Ocean Theme */
-@keyframes shimmer {
-  0% {
-    background-position: -1000px 0;
-  }
-  100% {
-    background-position: 1000px 0;
-  }
+/* ---------------------------------------------------------------- Scrollbars */
+
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(79, 195, 247, 0.35) transparent;
 }
 
-.shimmer {
-  animation: shimmer 3s linear infinite;
-  background: linear-gradient(
-    to right,
-    transparent 0%,
-    rgba(255, 255, 255, 0.2) 50%,
-    transparent 100%
-  );
-  background-size: 1000px 100%;
+.thin-scroll::-webkit-scrollbar {
+  width: 8px;
 }
 
-/* Floating Water Bubbles Background */
-@keyframes floatUp {
-  0% {
-    transform: translateY(100vh) scale(0);
-    opacity: 0;
-  }
-  10% {
-    opacity: 0.6;
-  }
-  90% {
-    opacity: 0.6;
-  }
-  100% {
-    transform: translateY(-100vh) scale(1);
-    opacity: 0;
-  }
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.bubble-float {
-  position: absolute;
-  bottom: -100px;
-  width: 40px;
-  height: 40px;
-  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.3), rgba(79, 195, 247, 0.1));
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  animation: floatUp 15s infinite ease-in;
-  box-shadow: 
-    inset 0 0 20px rgba(255, 255, 255, 0.2),
-    0 0 30px rgba(79, 195, 247, 0.3);
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: rgba(79, 195, 247, 0.3);
+  border-radius: 999px;
 }
 
-.bubble-float::before {
+.thin-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(79, 195, 247, 0.5);
+}
+
+/* -------------------------------------------------------------- Glass panels */
+
+.glass {
+  position: relative;
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-stroke);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Thin specular highlight along the top edge, like light on a wet surface. */
+.glass::after {
   content: '';
   position: absolute;
-  top: 10%;
-  left: 20%;
-  width: 30%;
-  height: 30%;
-  background: rgba(255, 255, 255, 0.6);
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.1), transparent 42%);
+}
+
+.glass-solid {
+  background: linear-gradient(160deg, rgba(14, 53, 82, 0.95), rgba(4, 18, 31, 0.97));
+  border: 1px solid var(--glass-stroke);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* ------------------------------------------------------------------ Backdrop */
+
+.caustics {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: 0.5;
+  background-image: radial-gradient(
+      ellipse 45% 22% at 22% 8%,
+      rgba(79, 195, 247, 0.5),
+      transparent 70%
+    ),
+    radial-gradient(ellipse 38% 26% at 74% 4%, rgba(38, 198, 218, 0.42), transparent 72%),
+    radial-gradient(ellipse 30% 18% at 48% 12%, rgba(255, 255, 255, 0.22), transparent 74%);
+  filter: blur(24px);
+}
+
+/* God rays angling down from the surface. */
+.light-shafts {
+  position: absolute;
+  inset: -25% -10% 0;
+  pointer-events: none;
+  opacity: 0.22;
+  mix-blend-mode: screen;
+  background: repeating-linear-gradient(
+    102deg,
+    transparent 0 62px,
+    rgba(158, 226, 255, 0.5) 62px 84px,
+    transparent 84px 168px
+  );
+  filter: blur(16px);
+  transform-origin: top center;
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 78% 62% at 50% 42%, transparent 32%, rgba(2, 9, 15, 0.78) 100%);
+}
+
+.rising-bubble {
+  position: absolute;
+  bottom: -8vh;
   border-radius: 50%;
-  filter: blur(3px);
+  background: radial-gradient(
+    circle at 32% 28%,
+    rgba(255, 255, 255, 0.5),
+    rgba(79, 195, 247, 0.08) 62%,
+    rgba(79, 195, 247, 0.02)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.22), 0 0 18px rgba(79, 195, 247, 0.18);
+  will-change: transform, opacity;
 }
 
-.bubble-float:nth-child(2) {
-  width: 60px;
-  height: 60px;
-  animation-duration: 18s;
+/* ------------------------------------------------------------ Gesture cursor */
+
+.gesture-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 90;
+  pointer-events: none;
+  will-change: transform;
 }
 
-.bubble-float:nth-child(3) {
-  width: 30px;
-  height: 30px;
-  animation-duration: 12s;
+/* --------------------------------------------------------------- Typography  */
+
+.display {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
 }
 
-.bubble-float:nth-child(4) {
-  width: 50px;
-  height: 50px;
-  animation-duration: 20s;
+.text-gradient-tide {
+  background: linear-gradient(100deg, #9be7ff 0%, var(--glow-cyan) 38%, var(--glow-coral) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
-.bubble-float:nth-child(5) {
-  width: 35px;
-  height: 35px;
-  animation-duration: 16s;
+.eyebrow {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(155, 231, 255, 0.65);
 }
 
-.bubble-float:nth-child(6) {
-  width: 45px;
-  height: 45px;
-  animation-duration: 14s;
+/* Tabular figures stop the score from jittering as digits change. */
+.numeric {
+  font-family: 'Outfit', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
 }
 
-.bubble-float:nth-child(7) {
-  width: 55px;
-  height: 55px;
-  animation-duration: 19s;
+/* ------------------------------------------------------------------- Range   */
+
+.range-tide {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(2, 9, 15, 0.6);
+  border: 1px solid var(--glass-stroke);
+  outline: none;
+}
+
+.range-tide::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff, var(--glow-cyan));
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 16px rgba(79, 195, 247, 0.75);
+  cursor: pointer;
+}
+
+.range-tide::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff, var(--glow-cyan));
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 16px rgba(79, 195, 247, 0.75);
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------------ Motion   */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Opt-in kill switch driven by the in-game accessibility toggle. */
+.reduce-motion .rising-bubble,
+.reduce-motion .caustics,
+.reduce-motion .light-shafts {
+  animation: none !important;
 }

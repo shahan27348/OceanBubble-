@@ -3,1827 +3,1409 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { audioManager } from "../services/audioService";
-import { Point, Bubble, Particle, BubbleColor } from "../types";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Home, Settings as SettingsIcon, Volume2, VolumeX } from "lucide-react";
 import {
-  Loader2,
-  Trophy,
-  Play,
-  MousePointerClick,
-  Monitor,
-  Volume2,
-  VolumeX,
-  RefreshCw,
-  XCircle,
-  Zap,
-  Lock,
-  Home,
-  Star,
-  Fish,
-  Target,
-  ArrowLeft,
-  Settings as SettingsIcon,
-} from "lucide-react";
-
-type Screen = "home" | "game" | "levels" | "settings";
-
-type LevelConfig = {
-  id: number;
-  name: string;
-  fishCount: number;
-  ballsLimit: number;
-  rows: number;
-  unlocked: boolean;
-  stars: number;
-};
-
-const LEVELS: LevelConfig[] = [
-  {
-    id: 1,
-    name: "Coral Reef",
-    fishCount: 3,
-    ballsLimit: 10,
-    rows: 4,
-    unlocked: true,
-    stars: 0,
-  },
-  {
-    id: 2,
-    name: "Deep Blue",
-    fishCount: 4,
-    ballsLimit: 12,
-    rows: 5,
-    unlocked: false,
-    stars: 0,
-  },
-  {
-    id: 3,
-    name: "Kelp Forest",
-    fishCount: 5,
-    ballsLimit: 15,
-    rows: 5,
-    unlocked: false,
-    stars: 0,
-  },
-  {
-    id: 4,
-    name: "Shipwreck",
-    fishCount: 6,
-    ballsLimit: 18,
-    rows: 6,
-    unlocked: false,
-    stars: 0,
-  },
-  {
-    id: 5,
-    name: "Abyss",
-    fishCount: 7,
-    ballsLimit: 20,
-    rows: 6,
-    unlocked: false,
-    stars: 0,
-  },
-  {
-    id: 6,
-    name: "Atlantis",
-    fishCount: 8,
-    ballsLimit: 22,
-    rows: 7,
-    unlocked: false,
-    stars: 0,
-  },
-  {
-    id: 7,
-    name: "Mariana",
-    fishCount: 9,
-    ballsLimit: 25,
-    rows: 7,
-    unlocked: false,
-    stars: 0,
-  },
-  {
-    id: 8,
-    name: "Arctic Flow",
-    fishCount: 10,
-    ballsLimit: 28,
-    rows: 8,
-    unlocked: false,
-    stars: 0,
-  },
-  {
-    id: 9,
-    name: "Volcano Reef",
-    fishCount: 12,
-    ballsLimit: 30,
-    rows: 8,
-    unlocked: false,
-    stars: 0,
-  },
-  {
-    id: 10,
-    name: "Poseidon's Temple",
-    fishCount: 15,
-    ballsLimit: 35,
-    rows: 9,
-    unlocked: false,
-    stars: 0,
-  },
-];
-
-const PINCH_THRESHOLD = 0.05;
-const GRAVITY = 0.03; // Reduced gravity for better arcs
-const FRICTION = 0.998; // Minimal friction for smooth flight
-
-const BUBBLE_RADIUS = 22;
-const ROW_HEIGHT = BUBBLE_RADIUS * Math.sqrt(3);
-const GRID_COLS = 12;
-const GRID_ROWS = 8;
-const SLINGSHOT_BOTTOM_OFFSET = 220;
-
-const MAX_DRAG_DIST = 150;
-const MIN_FORCE_MULT = 0.3; // Stronger minimum force
-const MAX_FORCE_MULT = 0.8; // Stronger maximum force
-
-const BOUNCE_RESTITUTION = 0.85; // Higher bounce to prevent sticking to walls
-const STICK_SPEED_THRESHOLD = 8.0; // Higher threshold - stick on almost any speed
-const MAX_REFLECTIONS_PER_STEP = 3; // Allow more wall bounces
-const BUBBLE_COLLISION_DISTANCE = 2.1; // Larger detection radius
-
-// Ocean Theme Colors & Scoring Strategy
-const COLOR_CONFIG: Record<
+  Bubble,
   BubbleColor,
-  { hex: string; points: number; label: string }
-> = {
-  red: { hex: "#ff6b9d", points: 100, label: "Coral" }, // Coral Pink
-  blue: { hex: "#4fc3f7", points: 150, label: "Ocean" }, // Ocean Blue
-  green: { hex: "#26c6da", points: 200, label: "Aqua" }, // Aqua Green
-  yellow: { hex: "#ffd54f", points: 250, label: "Pearl" }, // Pearl Yellow
-  purple: { hex: "#7e57c2", points: 300, label: "Jellyfish" }, // Purple Jellyfish
-  orange: { hex: "#ffab40", points: 500, label: "Starfish" }, // Orange Starfish
-};
+  GameSettings,
+  HandSample,
+  InputMode,
+  LevelConfig,
+  Particle,
+  Point,
+  RoundResult,
+  SavedState,
+  Screen,
+} from "../types";
+import { COLOR_CONFIG, ENDLESS, GESTURE, GRID, LEVELS, PHYSICS, adjustColor } from "../gameConfig";
+import {
+  Ball,
+  Layout,
+  MAX_MULTIPLIER,
+  arenaBounds,
+  clampDrag,
+  computeLayout,
+  computePressure,
+  computeStars,
+  dealColors,
+  evaluateOutcome,
+  findLandingCell,
+  generateGrid,
+  launchVelocity,
+  lowestBubbleEdge,
+  nextBubbleId,
+  predictTrajectory,
+  pushRowsDown,
+  relayoutBubbles,
+  resolveShot,
+  stepBall,
+} from "../game/engine";
+import {
+  Landmark,
+  PointFilter,
+  TimedPoint,
+  cameraToScreen,
+  detectPinch,
+  isValidHand,
+  pickReleasePoint,
+  pinchMidpoint,
+  pinchRatio,
+  trackingQuality,
+} from "../game/gesture";
+import { audioManager } from "../services/audioService";
+import {
+  applyRoundResult,
+  defaultState,
+  loadState,
+  saveState,
+} from "../services/storageService";
+import {
+  TrackerStatus,
+  describeStatus,
+  isTrackerFailure,
+  startHandTracking,
+} from "../services/handTracker";
+import { OceanBackdrop } from "./ui/OceanBackdrop";
+import { GestureCursor } from "./ui/GestureCursor";
+import { GestureButton, GestureProvider } from "./ui/GestureControl";
+import { CameraPip } from "./ui/CameraPip";
+import { HomeScreen } from "./screens/HomeScreen";
+import { LevelsScreen } from "./screens/LevelsScreen";
+import { SettingsScreen } from "./screens/SettingsScreen";
+import { ResultModal } from "./game/ResultModal";
+import {
+  AmmoGauge,
+  ColorSelector,
+  ComboBadge,
+  DangerGauge,
+  ObjectiveCard,
+  ScoreCard,
+} from "./game/GameHud";
 
-const COLOR_KEYS: BubbleColor[] = [
-  "red",
-  "blue",
-  "green",
-  "yellow",
-  "purple",
-  "orange",
+/** MediaPipe's 21-point hand topology, for the camera preview skeleton. */
+const HAND_CONNECTIONS: Array<[number, number]> = [
+  [0, 1], [1, 2], [2, 3], [3, 4],
+  [0, 5], [5, 6], [6, 7], [7, 8],
+  [5, 9], [9, 10], [10, 11], [11, 12],
+  [9, 13], [13, 14], [14, 15], [15, 16],
+  [13, 17], [0, 17], [17, 18], [18, 19], [19, 20],
 ];
 
-// Color Helper for Gradients
-const adjustColor = (color: string, amount: number) => {
-  const hex = color.replace("#", "");
-  const r = Math.max(
-    0,
-    Math.min(255, parseInt(hex.substring(0, 2), 16) + amount)
-  );
-  const g = Math.max(
-    0,
-    Math.min(255, parseInt(hex.substring(2, 4), 16) + amount)
-  );
-  const b = Math.max(
-    0,
-    Math.min(255, parseInt(hex.substring(4, 6), 16) + amount)
-  );
-
-  const componentToHex = (c: number) => {
-    const hex = c.toString(16);
-    return hex.length === 1 ? "0" + hex : hex;
-  };
-
-  return "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
-};
+const MAX_DPR = 2;
 
 const OceanBubbles: React.FC = () => {
+  /* ------------------------------------------------------------- Elements */
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const gameContainerRef = useRef<HTMLDivElement>(null);
+  const pipCanvasRef = useRef<HTMLCanvasElement>(null);
+  const arenaRef = useRef<HTMLDivElement>(null);
 
-  // Game State Refs
-  const ballPos = useRef<Point>({ x: 0, y: 0 });
-  const ballVel = useRef<Point>({ x: 0, y: 0 });
-  const anchorPos = useRef<Point>({ x: 0, y: 0 });
-  const isPinching = useRef<boolean>(false);
-  const isFlying = useRef<boolean>(false);
-  const flightStartTime = useRef<number>(0);
-  const bubbles = useRef<Bubble[]>([]);
-  const particles = useRef<Particle[]>([]);
-  const scoreRef = useRef<number>(0);
+  /* ------------------------------------------------------------ Persisted */
 
-  // Smoothing for stable aim
-  const smoothedBallPos = useRef<Point>({ x: 0, y: 0 });
-  const positionHistory = useRef<Point[]>([]);
+  const [saved, setSaved] = useState<SavedState>(() => loadState());
+  const settings = saved.settings;
 
-  const isGameOverRef = useRef<boolean>(false);
-
-  // Combo System
-  const comboCount = useRef<number>(0);
-  const comboTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Current active color (Ref for loop, State for UI)
-  const selectedColorRef = useRef<BubbleColor>("red");
-
-  // React State
-  const [loading, setLoading] = useState(true);
-  const [screen, setScreen] = useState<Screen>("game");
-  const [currentLevel, setCurrentLevel] = useState<LevelConfig | null>(LEVELS[0]);
-  const [levels, setLevels] = useState<LevelConfig[]>(LEVELS);
-  const [ballsRemaining, setBallsRemaining] = useState(LEVELS[0].ballsLimit);
-  const [fishFreed, setFishFreed] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [score, setScore] = useState(0);
-  const [isGameOver, setIsGameOver] = useState(false);
-  const [selectedColor, setSelectedColor] = useState<BubbleColor>("red");
-  const [availableColors, setAvailableColors] = useState<BubbleColor[]>([]);
-  const [colorPair, setColorPair] = useState<[BubbleColor, BubbleColor]>([
-    "red",
-    "blue",
-  ]);
-  const [isMuted, setIsMuted] = useState(false);
-  const [currentCombo, setCurrentCombo] = useState(0);
-  const [comboMultiplier, setComboMultiplier] = useState(1);
-  const [showComboText, setShowComboText] = useState(false);
-  const [hoveredColor, setHoveredColor] = useState<BubbleColor | null>(null);
-
-  // Track color button positions
-  const colorButtonRefs = useRef<Map<BubbleColor, DOMRect>>(new Map());
-  const lastMenuAction = useRef<number>(0);
-
-  // Sync state to ref
-  useEffect(() => {
-    selectedColorRef.current = selectedColor;
-  }, [selectedColor]);
-
-  useEffect(() => {
-    isGameOverRef.current = isGameOver;
-  }, [isGameOver]);
-
-  useEffect(() => {
-    audioManager.setMuted(isMuted);
-  }, [isMuted]);
-
-  // Haptic feedback helper
-  const triggerHaptic = (pattern: number | number[]) => {
-    if (!isMuted && typeof navigator !== "undefined" && navigator.vibrate) {
-      navigator.vibrate(pattern);
-    }
-  };
-
-  const getBubblePos = (row: number, col: number, width: number) => {
-    const xOffset = (width - GRID_COLS * BUBBLE_RADIUS * 2) / 2 + BUBBLE_RADIUS;
-    const isOdd = row % 2 !== 0;
-    const x = xOffset + col * (BUBBLE_RADIUS * 2) + (isOdd ? BUBBLE_RADIUS : 0);
-    const y = BUBBLE_RADIUS + row * ROW_HEIGHT;
-    return { x, y };
-  };
-
-  const updateAvailableColors = () => {
-    const activeColors = new Set<BubbleColor>();
-    bubbles.current.forEach((b) => {
-      if (b.active) activeColors.add(b.color);
-    });
-    setAvailableColors(Array.from(activeColors));
-
-    // If current selected color is gone, switch to first available
-    if (!activeColors.has(selectedColorRef.current) && activeColors.size > 0) {
-      const next = Array.from(activeColors)[0];
-      setSelectedColor(next);
-    }
-  };
-
-  const generateNewColorPair = useCallback(() => {
-    const activeColors = new Set<BubbleColor>();
-    bubbles.current.forEach((b) => {
-      if (b.active) activeColors.add(b.color);
-    });
-    const activeArray = Array.from(activeColors);
-
-    if (activeArray.length >= 2) {
-      // Pick 2 random colors from active colors
-      const shuffled = [...activeArray].sort(() => Math.random() - 0.5);
-      const newPair: [BubbleColor, BubbleColor] = [shuffled[0], shuffled[1]];
-      setColorPair(newPair);
-      // Auto-select first color in pair
-      setSelectedColor(newPair[0]);
-    } else if (activeArray.length === 1) {
-      setColorPair([activeArray[0], activeArray[0]]);
-      setSelectedColor(activeArray[0]);
-    }
+  const patchSettings = useCallback((patch: Partial<GameSettings>) => {
+    setSaved((prev) => ({ ...prev, settings: { ...prev.settings, ...patch } }));
   }, []);
 
-  const initGrid = useCallback(
-    (width: number, levelConfig?: LevelConfig) => {
-      const newBubbles: Bubble[] = [];
-      const rowCount = levelConfig ? levelConfig.rows : 5;
-      const fishCount = levelConfig ? levelConfig.fishCount : 0;
-      let fishBubbles: string[] = [];
+  useEffect(() => {
+    saveState(saved);
+  }, [saved]);
 
-      // Generate all bubble positions first
-      const allPositions: { r: number; c: number }[] = [];
-      for (let r = 0; r < rowCount; r++) {
-        for (let c = 0; c < (r % 2 !== 0 ? GRID_COLS - 1 : GRID_COLS); c++) {
-          if (Math.random() > 0.1) {
-            allPositions.push({ r, c });
-          }
-        }
-      }
+  useEffect(() => {
+    audioManager.setMuted(settings.muted);
+    audioManager.setVolume(settings.volume);
+  }, [settings.muted, settings.volume]);
 
-      // Randomly select positions for fish bubbles
-      const shuffled = [...allPositions].sort(() => Math.random() - 0.5);
-      fishBubbles = shuffled
-        .slice(0, fishCount)
-        .map((pos) => `${pos.r}-${pos.c}`);
+  /* ---------------------------------------------------------- Shell state */
 
-      // Create bubbles
-      for (const pos of allPositions) {
-        const { x, y } = getBubblePos(pos.r, pos.c, width);
-        const id = `${pos.r}-${pos.c}`;
-        newBubbles.push({
-          id,
-          row: pos.r,
-          col: pos.c,
-          x,
-          y,
-          color: COLOR_KEYS[Math.floor(Math.random() * COLOR_KEYS.length)],
-          active: true,
-          hasFish: fishBubbles.includes(id),
-        });
-      }
-      bubbles.current = newBubbles;
-      updateAvailableColors();
-      setTimeout(() => generateNewColorPair(), 100);
-    },
-    [generateNewColorPair]
+  const [screen, setScreen] = useState<Screen>("home");
+  const [settingsReturn, setSettingsReturn] = useState<"home" | "game">("home");
+  const [currentLevel, setCurrentLevel] = useState<LevelConfig | null>(null);
+  const [score, setScore] = useState(0);
+  const [ballsRemaining, setBallsRemaining] = useState<number | null>(null);
+  const [fishFreed, setFishFreed] = useState(0);
+  const [selectedColor, setSelectedColor] = useState<BubbleColor>("red");
+  const [colorPair, setColorPair] = useState<[BubbleColor, BubbleColor]>(["red", "blue"]);
+  const [nextColor, setNextColor] = useState<BubbleColor>("green");
+  const [combo, setCombo] = useState(0);
+  const [comboFlash, setComboFlash] = useState(false);
+  const [result, setResult] = useState<RoundResult | null>(null);
+  const [pressure, setPressure] = useState(0);
+  const [hasFired, setHasFired] = useState(false);
+  const [roundActive, setRoundActive] = useState(false);
+
+  /* ------------------------------------------------------------- Tracking */
+
+  const [trackerStatus, setTrackerStatus] = useState<TrackerStatus>("loading");
+  const [handDetected, setHandDetected] = useState(false);
+  const [trackingQualityLevel, setTrackingQualityLevel] = useState(0);
+  const [livePinchRatio, setLivePinchRatio] = useState(1);
+  const [cursor, setCursor] = useState<Point | null>(null);
+  const [cursorPinching, setCursorPinching] = useState(false);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [dwellProgress, setDwellProgress] = useState(0);
+
+  const inputMode: InputMode = isTrackerFailure(trackerStatus) ? "pointer" : "hand";
+
+  /* --------------------------------------------------------- Engine state */
+
+  const layoutRef = useRef<Layout>(computeLayout(1280, 800));
+  const dprRef = useRef(1);
+  const bubbles = useRef<Bubble[]>([]);
+  const particles = useRef<Particle[]>([]);
+  const ball = useRef<Ball>({ x: 0, y: 0, vx: 0, vy: 0 });
+  const aimHistory = useRef<TimedPoint[]>([]);
+  const isDragging = useRef(false);
+  const isFlying = useRef(false);
+  const flightStart = useRef(0);
+  /** Simulation clock (ms). Only advances while the round is actually being
+   *  simulated, so pausing in Settings or switching tabs doesn't time out a
+   *  shot in flight or expire a combo. */
+  const simTime = useRef(0);
+  /** Colour of the shot in flight, fixed at launch. */
+  const ballColor = useRef<BubbleColor>("red");
+  const handLostAt = useRef(0);
+  const dragSource = useRef<"hand" | "pointer" | null>(null);
+  const scoreRef = useRef(0);
+  const fishRef = useRef(0);
+  const comboRef = useRef(0);
+  const bestComboRef = useRef(0);
+  const comboExpiry = useRef(0);
+  const ballsUsedRef = useRef(0);
+  const shotsSincePush = useRef(0);
+  const roundOverRef = useRef(false);
+  const promisedColor = useRef<BubbleColor | null>(null);
+
+  const handSample = useRef<HandSample | null>(null);
+  const handFilter = useRef(new PointFilter());
+  const pointerInput = useRef({ active: false, down: false, x: 0, y: 0 });
+  /** After a pinch activates a control (or a round starts), the hand must be
+   *  seen open before a pinch counts again — otherwise holding the pinch would
+   *  click whatever appears under the cursor on the next screen. Hand-only: a
+   *  mouse press only registers on the board, so it is always deliberate. */
+  const awaitRelease = useRef(false);
+  const dwell = useRef({ id: null as string | null, start: 0, fired: false });
+  const gestureHandlers = useRef(new Map<string, () => void>());
+  const lastTickSound = useRef(0);
+
+  /**
+   * Everything the render loop and the camera callback read lives in this ref,
+   * refreshed every render, so neither ever sees stale React state and neither
+   * has to restart when state changes.
+   */
+  const live = useRef({
+    screen,
+    currentLevel,
+    ballsRemaining,
+    settings,
+    selectedColor,
+    highScore: saved.highScore,
+    hasResult: false,
+  });
+  live.current = {
+    screen,
+    currentLevel,
+    ballsRemaining,
+    settings,
+    selectedColor,
+    highScore: saved.highScore,
+    hasResult: result !== null,
+  };
+
+  /* --------------------------------------------------------------- Gestures */
+
+  const register = useCallback((id: string, handler: () => void) => {
+    gestureHandlers.current.set(id, handler);
+    return () => {
+      gestureHandlers.current.delete(id);
+    };
+  }, []);
+
+  const gestureValue = useMemo(
+    () => ({ hoveredId, dwellProgress, register }),
+    [hoveredId, dwellProgress, register]
   );
 
-  const startQuickGame = () => {
-    setScreen("game");
-    setCurrentLevel(null);
-    setBallsRemaining(999); // Unlimited for quick play
-    setFishFreed(0);
-    resetGame();
-  };
+  /* ------------------------------------------------------------ Helpers */
 
-  const startLevel = (level: LevelConfig) => {
-    if (!level.unlocked) return;
-    setCurrentLevel(level);
-    setScreen("game");
-    setBallsRemaining(level.ballsLimit);
-    setFishFreed(0);
-    resetGame();
-  };
+  const resetBall = useCallback(() => {
+    const { anchor } = layoutRef.current;
+    ball.current = { x: anchor.x, y: anchor.y, vx: 0, vy: 0 };
+  }, []);
 
-  const resetGame = () => {
-    scoreRef.current = 0;
-    setScore(0);
-    particles.current = [];
-    setIsGameOver(false);
-    isGameOverRef.current = false;
-    isFlying.current = false;
-    ballVel.current = { x: 0, y: 0 };
-    resetCombo(); // Reset combo system
-    if (canvasRef.current) {
-      ballPos.current = {
-        x: canvasRef.current.width / 2,
-        y: canvasRef.current.height - SLINGSHOT_BOTTOM_OFFSET,
-      };
-      initGrid(canvasRef.current.width);
-    }
-    audioManager.playClick();
-  };
-
-  const checkGameOverCondition = () => {
-    // Level mode: check if no balls left or level complete
-    if (currentLevel) {
-      // Win condition: all fish rescued
-      if (fishFreed >= currentLevel.fishCount) {
-        setIsGameOver(true);
-        isGameOverRef.current = true;
-        audioManager.playPop(5);
-        triggerHaptic([100, 50, 100]);
-        // Unlock next level
-        setLevels((prev) =>
-          prev.map((l) =>
-            l.id === currentLevel.id + 1 ? { ...l, unlocked: true } : l
-          )
-        );
-        return;
-      }
-
-      // Lose condition: no balls left
-      if (ballsRemaining <= 0 && !isFlying.current) {
-        setIsGameOver(true);
-        isGameOverRef.current = true;
-        audioManager.playPop(5);
-        triggerHaptic([100, 50, 100]);
-        return;
-      }
-    }
-
-    // Quick play mode: bubbles reach bottom
-    const threshold = anchorPos.current.y - 60;
-    const reached = bubbles.current.some(
-      (b) => b.active && b.y + BUBBLE_RADIUS > threshold
-    );
-    if (reached) {
-      setIsGameOver(true);
-      isGameOverRef.current = true;
-      audioManager.playPop(5);
-      triggerHaptic([100, 50, 100]);
-    }
-  };
-
-  const createExplosion = (x: number, y: number, color: string) => {
-    for (let i = 0; i < 15; i++) {
+  const createExplosion = useCallback((x: number, y: number, color: string) => {
+    for (let i = 0; i < 16; i++) {
+      const angle = (Math.PI * 2 * i) / 16 + Math.random() * 0.4;
+      const speed = 2 + Math.random() * 5;
       particles.current.push({
         x,
         y,
-        vx: (Math.random() - 0.5) * 12,
-        vy: (Math.random() - 0.5) * 12,
-        life: 1.0,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 1,
+        life: 1,
         color,
+        radius: 2 + Math.random() * 4,
       });
     }
-  };
+    // Bound the particle pool so a huge avalanche can't stall the frame.
+    if (particles.current.length > 600) particles.current.splice(0, particles.current.length - 600);
+  }, []);
 
-  const isNeighbor = (a: Bubble, b: Bubble) => {
-    const dr = b.row - a.row;
-    const dc = b.col - a.col;
-    if (Math.abs(dr) > 1) return false;
-    if (dr === 0) return Math.abs(dc) === 1;
-    if (a.row % 2 !== 0) {
-      return dc === 0 || dc === 1;
-    } else {
-      return dc === -1 || dc === 0;
-    }
-  };
+  const deal = useCallback(() => {
+    const d = dealColors(bubbles.current, promisedColor.current);
+    promisedColor.current = d.next;
+    setColorPair(d.pair);
+    setSelectedColor(d.pair[0]);
+    // Keep the loop's copy current immediately; the next render would too.
+    live.current.selectedColor = d.pair[0];
+    setNextColor(d.next);
+  }, []);
 
-  const getCluster = (start: Bubble, colorMatch: boolean = true): Bubble[] => {
-    const cluster: Bubble[] = [];
-    const queue = [start];
-    const visited = new Set<string>([start.id]);
-    const targetColor = start.color;
+  /* --------------------------------------------------------------- Rounds */
 
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      cluster.push(current);
+  const beginRound = useCallback(
+    (level: LevelConfig | null) => {
+      const layout = layoutRef.current;
+      scoreRef.current = 0;
+      fishRef.current = 0;
+      comboRef.current = 0;
+      bestComboRef.current = 0;
+      comboExpiry.current = 0;
+      ballsUsedRef.current = 0;
+      shotsSincePush.current = 0;
+      roundOverRef.current = false;
+      promisedColor.current = null;
+      particles.current = [];
+      isFlying.current = false;
+      isDragging.current = false;
+      aimHistory.current = [];
+      awaitRelease.current = true;
 
-      const neighbors = bubbles.current.filter(
-        (b) =>
-          b.active &&
-          !visited.has(b.id) &&
-          isNeighbor(current, b) &&
-          (!colorMatch || b.color === targetColor)
-      );
-
-      neighbors.forEach((n) => {
-        visited.add(n.id);
-        queue.push(n);
+      bubbles.current = generateGrid({
+        rows: level ? level.rows : ENDLESS.startRows,
+        fishCount: level ? level.fishCount : 0,
+        arenaLeft: layout.arenaLeft,
       });
-    }
-    return cluster;
-  };
+      resetBall();
+      deal();
 
-  const getConnectedToTop = (bubbleList: Bubble[]): Set<string> => {
-    const active = bubbleList.filter((b) => b.active);
-    const topRow = active.filter((b) => b.row === 0);
-    const connected = new Set<string>();
-    const queue = [...topRow];
-    topRow.forEach((b) => connected.add(b.id));
+      setScore(0);
+      setFishFreed(0);
+      setCombo(0);
+      setHasFired(false);
+      setResult(null);
+      setPressure(computePressure(bubbles.current, layout));
+      setCurrentLevel(level);
+      setBallsRemaining(level ? level.ballsLimit : null);
+      setRoundActive(true);
+      setScreen("game");
+      live.current.currentLevel = level;
+      live.current.screen = "game";
+      live.current.hasResult = false;
 
-    while (queue.length > 0) {
-      const curr = queue.shift()!;
-      const neighbors = active.filter(
-        (n) => !connected.has(n.id) && isNeighbor(curr, n)
-      );
-      neighbors.forEach((n) => {
-        connected.add(n.id);
-        queue.push(n);
-      });
-    }
-    return connected;
-  };
+      audioManager.playClick();
+      audioManager.startAmbient();
+    },
+    [deal, resetBall]
+  );
 
-  const calculateAvalanche = (cluster: Bubble[]): number => {
-    const clusterIds = new Set(cluster.map((b) => b.id));
-    const hypotheticalBubbles = bubbles.current.map((b) => ({
-      ...b,
-      active: b.active && !clusterIds.has(b.id),
-    }));
+  const finishRound = useCallback((outcome: "victory" | "defeat") => {
+    // A ref rather than the `result` state: two conditions can resolve in the
+    // same frame, before React has re-rendered.
+    if (roundOverRef.current) return;
+    roundOverRef.current = true;
+    isDragging.current = false;
+    live.current.hasResult = true;
 
-    const connected = getConnectedToTop(hypotheticalBubbles);
-    const activeCount = hypotheticalBubbles.filter((b) => b.active).length;
-    return activeCount - connected.size;
-  };
+    const level = live.current.currentLevel;
+    const finalScore = scoreRef.current;
+    const stars = outcome === "victory" && level ? computeStars(level, ballsUsedRef.current) : 0;
 
-  const cleanupOrphans = () => {
-    const connected = getConnectedToTop(bubbles.current);
-    let orphansPopped = 0;
-    bubbles.current.forEach((b) => {
-      if (b.active && !connected.has(b.id)) {
-        b.active = false;
-        createExplosion(b.x, b.y, COLOR_CONFIG[b.color].hex);
-        scoreRef.current += Math.floor(COLOR_CONFIG[b.color].points * 0.5);
-        orphansPopped++;
-      }
+    setResult({
+      outcome,
+      score: finalScore,
+      fishFreed: fishRef.current,
+      fishTarget: level?.fishCount ?? 0,
+      ballsUsed: ballsUsedRef.current,
+      stars,
+      bestCombo: Math.max(1, bestComboRef.current),
+      levelId: level?.id ?? null,
+      isNewHighScore: finalScore > live.current.highScore,
     });
+    setRoundActive(false);
 
-    if (orphansPopped > 0) {
+    setSaved((prev) =>
+      applyRoundResult(prev, {
+        levelId: level?.id ?? null,
+        outcome,
+        score: finalScore,
+        stars,
+        fishFreed: fishRef.current,
+      })
+    );
+
+    audioManager.stopAmbient();
+    if (outcome === "victory") audioManager.playVictory();
+    else audioManager.playDefeat();
+    vibrate(outcome === "victory" ? [90, 60, 90, 60, 140] : [220]);
+  }, []);
+
+  /* -------------------------------------------------------------- Scoring */
+
+  const resetCombo = useCallback(() => {
+    comboRef.current = 0;
+    comboExpiry.current = 0;
+    setCombo(0);
+  }, []);
+
+  const checkOutcome = useCallback(() => {
+    const outcome = evaluateOutcome({
+      level: live.current.currentLevel,
+      bubbles: bubbles.current,
+      fishFreed: fishRef.current,
+      ballsUsed: ballsUsedRef.current,
+      dangerY: layoutRef.current.dangerY,
+    });
+    if (outcome) finishRound(outcome);
+  }, [finishRound]);
+
+  /** Endless mode: count the shot and lower the board when it's time. */
+  const advanceEndless = useCallback(() => {
+    if (live.current.currentLevel) return;
+    const layout = layoutRef.current;
+
+    if (!bubbles.current.some((b) => b.active)) {
+      // Cleared the whole reef — reward it and refill.
+      scoreRef.current += ENDLESS.clearBonus;
       setScore(scoreRef.current);
-      audioManager.playPop(Math.min(5, Math.ceil(orphansPopped / 2)));
-    }
-  };
-
-  const resetCombo = () => {
-    comboCount.current = 0;
-    setCurrentCombo(0);
-    setComboMultiplier(1);
-    setShowComboText(false);
-  };
-
-  const incrementCombo = () => {
-    // Clear existing timeout
-    if (comboTimeoutRef.current) {
-      clearTimeout(comboTimeoutRef.current);
-    }
-
-    // Increment combo
-    comboCount.current += 1;
-    setCurrentCombo(comboCount.current);
-
-    // Calculate multiplier: 1x, 2x, 3x, 4x, 5x (max)
-    const multiplier = Math.min(comboCount.current, 5);
-    setComboMultiplier(multiplier);
-
-    // Show combo text with animation
-    setShowComboText(true);
-    setTimeout(() => setShowComboText(false), 1500);
-
-    // Enhanced haptic for combos
-    if (comboCount.current >= 3) {
-      triggerHaptic([50, 30, 50, 30, 50]);
-    }
-
-    // Set timeout to reset combo (3 seconds)
-    comboTimeoutRef.current = setTimeout(() => {
-      resetCombo();
-    }, 3000);
-  };
-
-  const checkMatches = (startBubble: Bubble) => {
-    const matches = getCluster(startBubble, true);
-
-    if (matches.length >= 3) {
-      let points = 0;
-      const basePoints = COLOR_CONFIG[startBubble.color].points;
-
-      // Increment combo chain
-      incrementCombo();
-
-      audioManager.playPop(matches.length);
-
-      matches.forEach((b) => {
-        b.active = false;
-        // Check if bubble has fish
-        if (b.hasFish) {
-          setFishFreed((prev) => prev + 1);
-        }
-        createExplosion(b.x, b.y, COLOR_CONFIG[b.color].hex);
-        points += basePoints;
+      bubbles.current = generateGrid({
+        rows: ENDLESS.startRows,
+        fishCount: 0,
+        arenaLeft: layout.arenaLeft,
       });
-
-      // Apply size bonus
-      const sizeMultiplier = matches.length > 3 ? 1.5 : 1.0;
-
-      // Apply combo multiplier
-      const totalMultiplier = sizeMultiplier * comboMultiplier;
-
-      scoreRef.current += Math.floor(points * totalMultiplier);
-      setScore(scoreRef.current);
-
-      // Clean up bubbles that are now orphans
-      cleanupOrphans();
-      return true;
-    } else {
-      // No match - reset combo
-      resetCombo();
-    }
-    return false;
-  };
-
-  const handleColorSelect = (color: BubbleColor) => {
-    if (isGameOver) return;
-    setSelectedColor(color);
-    audioManager.playClick();
-  };
-
-  const drawBubble = (
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    radius: number,
-    colorKey: BubbleColor
-  ) => {
-    const config = COLOR_CONFIG[colorKey];
-    const baseColor = config.hex;
-
-    const grad = ctx.createRadialGradient(
-      x - radius * 0.3,
-      y - radius * 0.3,
-      radius * 0.1,
-      x,
-      y,
-      radius
-    );
-    grad.addColorStop(0, "#ffffff");
-    grad.addColorStop(0.2, baseColor);
-    grad.addColorStop(1, adjustColor(baseColor, -60));
-
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    ctx.strokeStyle = adjustColor(baseColor, -80);
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.ellipse(
-      x - radius * 0.3,
-      y - radius * 0.35,
-      radius * 0.25,
-      radius * 0.15,
-      Math.PI / 4,
-      0,
-      Math.PI * 2
-    );
-    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-    ctx.fill();
-  };
-
-  useEffect(() => {
-    if (!videoRef.current || !canvasRef.current || !gameContainerRef.current)
+      shotsSincePush.current = 0;
+      audioManager.playVictory();
       return;
+    }
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const container = gameContainerRef.current;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return;
+    shotsSincePush.current += 1;
+    if (shotsSincePush.current >= ENDLESS.shotsPerPush) {
+      shotsSincePush.current = 0;
+      bubbles.current = pushRowsDown(bubbles.current, layout.arenaLeft);
+      audioManager.playWall();
+    }
+  }, []);
 
-    canvas.width = container.clientWidth;
-    canvas.height = container.clientHeight;
+  /* ------------------------------------------------------------ Simulation */
 
-    anchorPos.current = {
-      x: canvas.width / 2,
-      y: canvas.height - SLINGSHOT_BOTTOM_OFFSET,
+  const landBall = useCallback(() => {
+    isFlying.current = false;
+    const layout = layoutRef.current;
+    const cell = findLandingCell(bubbles.current, ball.current, layout.arenaLeft);
+
+    const landed: Bubble = {
+      id: nextBubbleId(),
+      row: cell.row,
+      col: cell.col,
+      x: cell.x,
+      y: cell.y,
+      color: ballColor.current,
+      active: true,
+      age: 0,
     };
-    ballPos.current = { ...anchorPos.current };
-
-    // Initialize grid with first level configuration
-    initGrid(canvas.width, LEVELS[0]);
-
-    let camera: any = null;
-    let hands: any = null;
-
-    const onResults = (results: any) => {
-      setLoading(false);
-
-      if (
-        canvas.width !== container.clientWidth ||
-        canvas.height !== container.clientHeight
-      ) {
-        canvas.width = container.clientWidth;
-        canvas.height = container.clientHeight;
-        anchorPos.current = {
-          x: canvas.width / 2,
-          y: canvas.height - SLINGSHOT_BOTTOM_OFFSET,
-        };
-        if (!isFlying.current && !isPinching.current) {
-          ballPos.current = { ...anchorPos.current };
-        }
-      }
-
-      ctx.save();
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // Draw video background if available
-      if (results.image) {
-        ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "rgba(0, 15, 30, 0.7)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      } else {
-        // Fallback: ocean gradient background
-        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        gradient.addColorStop(0, '#001F3F');
-        gradient.addColorStop(0.5, '#003d5c');
-        gradient.addColorStop(1, '#00263d');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
-
-      // Skip drawing game elements when not on game screen, but allow hand tracking
-      if (screen !== "game") {
-        // Still draw hand tracking landmarks for menu navigation
-        if (
-          results.multiHandLandmarks &&
-          results.multiHandLandmarks.length > 0
-        ) {
-          const landmarks = results.multiHandLandmarks[0];
-          if (window.drawConnectors && window.drawLandmarks) {
-            window.drawConnectors(ctx, landmarks, window.HAND_CONNECTIONS, {
-              color: "#669df6",
-              lineWidth: 1,
-            });
-            window.drawLandmarks(ctx, landmarks, {
-              color: "#aecbfa",
-              lineWidth: 1,
-              radius: 2,
-            });
-          }
-        }
-        ctx.restore();
-        return;
-      }
-
-      if (isGameOverRef.current) {
-        bubbles.current.forEach((b) => {
-          if (!b.active) return;
-          drawBubble(ctx, b.x, b.y, BUBBLE_RADIUS - 1, b.color);
-        });
-        ctx.restore();
-        return;
-      }
-
-      let handPos: Point | null = null;
-      let pinchDist = 1.0;
-
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        const landmarks = results.multiHandLandmarks[0];
-        const idxTip = landmarks[8];
-        const thumbTip = landmarks[4];
-
-        handPos = {
-          x: (idxTip.x * canvas.width + thumbTip.x * canvas.width) / 2,
-          y: (idxTip.y * canvas.height + thumbTip.y * canvas.height) / 2,
-        };
-
-        const dx = idxTip.x - thumbTip.x;
-        const dy = idxTip.y - thumbTip.y;
-        pinchDist = Math.sqrt(dx * dx + dy * dy);
-
-        if (window.drawConnectors && window.drawLandmarks) {
-          window.drawConnectors(ctx, landmarks, window.HAND_CONNECTIONS, {
-            color: "#669df6",
-            lineWidth: 1,
-          });
-          window.drawLandmarks(ctx, landmarks, {
-            color: "#aecbfa",
-            lineWidth: 1,
-            radius: 2,
-          });
-        }
-
-        ctx.beginPath();
-        ctx.arc(handPos.x, handPos.y, 20, 0, Math.PI * 2);
-        ctx.strokeStyle = pinchDist < PINCH_THRESHOLD ? "#26c6da" : "#ffffff";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Check if hand is hovering over color buttons
-        let colorHovered: BubbleColor | null = null;
-        let hoveredButton: Element | null = null;
-        const colorButtons = document.querySelectorAll("[data-color-button]");
-
-        // Use index finger tip position for hover (already declared above)
-        const idxPos = {
-          x: idxTip.x * canvas.width,
-          y: idxTip.y * canvas.height,
-        };
-
-        colorButtons.forEach((button) => {
-          const rect = button.getBoundingClientRect();
-          const colorAttr = button.getAttribute("data-color-button");
-          if (
-            colorAttr &&
-            idxPos &&
-            idxPos.x >= rect.left &&
-            idxPos.x <= rect.right &&
-            idxPos.y >= rect.top &&
-            idxPos.y <= rect.bottom
-          ) {
-            colorHovered = colorAttr as BubbleColor;
-            hoveredButton = button;
-          }
-        });
-        setHoveredColor(colorHovered);
-
-        // Pinch to select color button in game
-        if (
-          screen === "game" &&
-          colorHovered &&
-          hoveredButton &&
-          pinchDist < PINCH_THRESHOLD &&
-          !isFlying.current &&
-          !isPinching.current
-        ) {
-          const rect = hoveredButton.getBoundingClientRect();
-          const idxInside =
-            idxPos.x >= rect.left &&
-            idxPos.x <= rect.right &&
-            idxPos.y >= rect.top &&
-            idxPos.y <= rect.bottom;
-
-          if (idxInside && selectedColorRef.current !== colorHovered) {
-            setSelectedColor(colorHovered);
-            audioManager.playClick();
-            triggerHaptic(15);
-          }
-        }
-
-        // Menu button detection for home screen
-        if (screen === "home") {
-          const menuButtons = document.querySelectorAll("[data-menu-button]");
-          let menuHovered: string | null = null;
-
-          menuButtons.forEach((button) => {
-            const rect = button.getBoundingClientRect();
-            if (
-              idxPos.x >= rect.left &&
-              idxPos.x <= rect.right &&
-              idxPos.y >= rect.top &&
-              idxPos.y <= rect.bottom
-            ) {
-              menuHovered = button.getAttribute("data-menu-button");
-              button.classList.add("scale-110", "ring-4", "ring-white/60");
-            } else {
-              button.classList.remove("scale-110", "ring-4", "ring-white/60");
-            }
-          });
-
-          // Pinch to select menu option
-          if (menuHovered && pinchDist < PINCH_THRESHOLD) {
-            const now = performance.now();
-            if (now - lastMenuAction.current > 1000) {
-              // 1 second debounce
-              lastMenuAction.current = now;
-              audioManager.playClick();
-              triggerHaptic(20);
-
-              if (menuHovered === "quickstart") {
-                setTimeout(() => startQuickGame(), 200);
-              } else if (menuHovered === "levels") {
-                setTimeout(() => setScreen("levels"), 200);
-              } else if (menuHovered === "settings") {
-                setTimeout(() => setScreen("settings"), 200);
-              }
-            }
-          }
-        }
-      }
-
-      if (
-        handPos &&
-        pinchDist < PINCH_THRESHOLD &&
-        !isFlying.current &&
-        screen === "game"
-      ) {
-        const distToBall = Math.sqrt(
-          Math.pow(handPos.x - ballPos.current.x, 2) +
-            Math.pow(handPos.y - ballPos.current.y, 2)
-        );
-        if (!isPinching.current && distToBall < 100) {
-          isPinching.current = true;
-          triggerHaptic(20);
-        }
-
-        if (isPinching.current) {
-          // Add to position history for smoothing
-          positionHistory.current.push({ x: handPos.x, y: handPos.y });
-
-          // Keep only last 5 positions
-          if (positionHistory.current.length > 5) {
-            positionHistory.current.shift();
-          }
-
-          // Calculate smoothed position (average of recent positions)
-          let avgX = 0,
-            avgY = 0;
-          positionHistory.current.forEach((pos) => {
-            avgX += pos.x;
-            avgY += pos.y;
-          });
-          avgX /= positionHistory.current.length;
-          avgY /= positionHistory.current.length;
-
-          // Apply exponential smoothing for even smoother result
-          const smoothing = 0.3; // Lower = smoother but slower response
-          smoothedBallPos.current.x =
-            smoothedBallPos.current.x * (1 - smoothing) + avgX * smoothing;
-          smoothedBallPos.current.y =
-            smoothedBallPos.current.y * (1 - smoothing) + avgY * smoothing;
-
-          ballPos.current = {
-            x: smoothedBallPos.current.x,
-            y: smoothedBallPos.current.y,
-          };
-
-          const dragDx = ballPos.current.x - anchorPos.current.x;
-          const dragDy = ballPos.current.y - anchorPos.current.y;
-          const dragDist = Math.sqrt(dragDx * dragDx + dragDy * dragDy);
-
-          if (dragDist > MAX_DRAG_DIST) {
-            const angle = Math.atan2(dragDy, dragDx);
-            ballPos.current.x =
-              anchorPos.current.x + Math.cos(angle) * MAX_DRAG_DIST;
-            ballPos.current.y =
-              anchorPos.current.y + Math.sin(angle) * MAX_DRAG_DIST;
-            smoothedBallPos.current = { ...ballPos.current };
-          }
-        }
-      } else if (
-        isPinching.current &&
-        (!handPos || pinchDist >= PINCH_THRESHOLD)
-      ) {
-        isPinching.current = false;
-        positionHistory.current = []; // Clear history for next aim
-
-        const dx = anchorPos.current.x - ballPos.current.x;
-        const dy = anchorPos.current.y - ballPos.current.y;
-        const stretchDist = Math.sqrt(dx * dx + dy * dy);
-
-        if (stretchDist > 30) {
-          // Decrease balls remaining in level mode
-          if (currentLevel && ballsRemaining > 0) {
-            setBallsRemaining((prev) => prev - 1);
-          }
-
-          isFlying.current = true;
-          flightStartTime.current = performance.now();
-          audioManager.playShoot();
-
-          const powerRatio = Math.min(stretchDist / MAX_DRAG_DIST, 1.0);
-          const velocityMultiplier =
-            MIN_FORCE_MULT +
-            (MAX_FORCE_MULT - MIN_FORCE_MULT) * (powerRatio * powerRatio);
-
-          ballVel.current = {
-            x: dx * velocityMultiplier,
-            y: dy * velocityMultiplier,
-          };
-        } else {
-          ballPos.current = { ...anchorPos.current };
-        }
-      } else if (!isFlying.current && !isPinching.current) {
-        const dx = anchorPos.current.x - ballPos.current.x;
-        const dy = anchorPos.current.y - ballPos.current.y;
-        ballPos.current.x += dx * 0.15;
-        ballPos.current.y += dy * 0.15;
-      }
-
-      if (isFlying.current) {
-        if (performance.now() - flightStartTime.current > 10000) {
-          isFlying.current = false;
-          ballPos.current = { ...anchorPos.current };
-          ballVel.current = { x: 0, y: 0 };
-        } else {
-          const currentSpeed = Math.sqrt(
-            ballVel.current.x ** 2 + ballVel.current.y ** 2
-          );
-          const steps = Math.max(1, Math.ceil(currentSpeed / 5));
-          let collisionOccurred = false;
-
-          for (let i = 0; i < steps; i++) {
-            ballPos.current.x += ballVel.current.x / steps;
-            ballPos.current.y += ballVel.current.y / steps;
-
-            // Wall collision with proper bounce
-            if (ballPos.current.x < BUBBLE_RADIUS) {
-              ballPos.current.x = BUBBLE_RADIUS;
-              ballVel.current.x =
-                Math.abs(ballVel.current.x) * BOUNCE_RESTITUTION;
-              audioManager.playClick();
-              triggerHaptic(10);
-            } else if (ballPos.current.x > canvas.width - BUBBLE_RADIUS) {
-              ballPos.current.x = canvas.width - BUBBLE_RADIUS;
-              ballVel.current.x =
-                -Math.abs(ballVel.current.x) * BOUNCE_RESTITUTION;
-              audioManager.playClick();
-              triggerHaptic(10);
-            }
-
-            // Ceiling collision
-            if (ballPos.current.y < BUBBLE_RADIUS) {
-              collisionOccurred = true;
-              break;
-            }
-
-            // Bubble collision detection - STICK IMMEDIATELY
-            for (const b of bubbles.current) {
-              if (!b.active) continue;
-              const bdx = ballPos.current.x - b.x;
-              const bdy = ballPos.current.y - b.y;
-              const distSq = bdx * bdx + bdy * bdy;
-              const minDist = BUBBLE_RADIUS * BUBBLE_COLLISION_DISTANCE;
-
-              if (distSq < minDist * minDist) {
-                // STICK on contact - no bouncing between bubbles
-                collisionOccurred = true;
-                audioManager.playClick();
-                triggerHaptic(15);
-                break;
-              }
-            }
-            if (collisionOccurred) break;
-          }
-
-          // Apply physics
-          ballVel.current.y += GRAVITY;
-          ballVel.current.x *= FRICTION;
-          ballVel.current.y *= FRICTION;
-
-          if (collisionOccurred) {
-            isFlying.current = false;
-            let bestDist = Infinity;
-            let bestRow = 0;
-            let bestCol = 0;
-            let bestX = 0;
-            let bestY = 0;
-
-            for (let r = 0; r < GRID_ROWS + 10; r++) {
-              const colsInRow = r % 2 !== 0 ? GRID_COLS - 1 : GRID_COLS;
-              for (let c = 0; c < colsInRow; c++) {
-                const { x, y } = getBubblePos(r, c, canvas.width);
-                const occupied = bubbles.current.some(
-                  (b) => b.active && b.row === r && b.col === c
-                );
-                if (occupied) continue;
-                const dist = Math.sqrt(
-                  Math.pow(ballPos.current.x - x, 2) +
-                    Math.pow(ballPos.current.y - y, 2)
-                );
-                if (dist < bestDist) {
-                  bestDist = dist;
-                  bestRow = r;
-                  bestCol = c;
-                  bestX = x;
-                  bestY = y;
-                }
-              }
-            }
-
-            const newBubble: Bubble = {
-              id: `${bestRow}-${bestCol}-${Date.now()}`,
-              row: bestRow,
-              col: bestCol,
-              x: bestX,
-              y: bestY,
-              color: selectedColorRef.current,
-              active: true,
-            };
-            bubbles.current.push(newBubble);
-            checkMatches(newBubble);
-            checkGameOverCondition();
-            updateAvailableColors();
-            generateNewColorPair();
-            ballPos.current = { ...anchorPos.current };
-            ballVel.current = { x: 0, y: 0 };
-          }
-
-          if (ballPos.current.y > canvas.height) {
-            isFlying.current = false;
-            ballPos.current = { ...anchorPos.current };
-            ballVel.current = { x: 0, y: 0 };
-          }
-        }
-      }
-
-      bubbles.current.forEach((b) => {
-        if (!b.active) return;
-        drawBubble(ctx, b.x, b.y, BUBBLE_RADIUS - 1, b.color);
-
-        // Draw fish icon if bubble has fish
-        if (b.hasFish) {
-          ctx.save();
-          ctx.font = "bold 16px Arial";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText("🐠", b.x, b.y);
-          ctx.restore();
-        }
-      });
-
-      if (isPinching.current && !isFlying.current) {
-        const dx = anchorPos.current.x - ballPos.current.x;
-        const dy = anchorPos.current.y - ballPos.current.y;
-        const stretchDist = Math.sqrt(dx * dx + dy * dy);
-
-        if (stretchDist > 20) {
-          const powerRatio = Math.min(stretchDist / MAX_DRAG_DIST, 1.0);
-          const velocityMultiplier =
-            MIN_FORCE_MULT +
-            (MAX_FORCE_MULT - MIN_FORCE_MULT) * (powerRatio * powerRatio);
-
-          let tx = anchorPos.current.x;
-          let ty = anchorPos.current.y;
-          let tvx = dx * velocityMultiplier;
-          let tvy = dy * velocityMultiplier;
-
-          ctx.save();
-          ctx.globalAlpha = 0.7;
-          ctx.setLineDash([8, 6]);
-          ctx.strokeStyle = "#4fc3f7";
-          ctx.lineWidth = 3;
-          ctx.shadowBlur = 10;
-          ctx.shadowColor = "#4fc3f7";
-          ctx.beginPath();
-          ctx.moveTo(tx, ty);
-
-          let collision = false;
-          const maxSteps = 150; // More steps for longer trajectory
-
-          for (let step = 0; step < maxSteps; step++) {
-            let reflectionsThisStep = 0;
-
-            // Smaller substeps for smoother trajectory
-            for (let sub = 0; sub < 2; sub++) {
-              tx += tvx / 2;
-              ty += tvy / 2;
-
-              // Wall bounces
-              if (tx < BUBBLE_RADIUS) {
-                tx = BUBBLE_RADIUS;
-                tvx = Math.abs(tvx) * BOUNCE_RESTITUTION;
-                reflectionsThisStep++;
-              } else if (tx > canvas.width - BUBBLE_RADIUS) {
-                tx = canvas.width - BUBBLE_RADIUS;
-                tvx = -Math.abs(tvx) * BOUNCE_RESTITUTION;
-                reflectionsThisStep++;
-              }
-
-              // Ceiling collision
-              if (ty < BUBBLE_RADIUS) {
-                collision = true;
-                break;
-              }
-
-              // Check collision with bubbles - STICK IMMEDIATELY
-              for (const b of bubbles.current) {
-                if (!b.active) continue;
-                const bdx = tx - b.x;
-                const bdy = ty - b.y;
-                const distSq = bdx * bdx + bdy * bdy;
-                const minDist = BUBBLE_RADIUS * BUBBLE_COLLISION_DISTANCE;
-
-                if (distSq < minDist * minDist) {
-                  // STICK on any contact
-                  collision = true;
-                  break;
-                }
-              }
-              if (collision) break;
-
-              // Apply physics
-              tvy += GRAVITY;
-              tvx *= FRICTION;
-              tvy *= FRICTION;
-            }
-
-            if (collision) {
-              ctx.lineTo(tx, ty);
-              break;
-            }
-
-            // Draw trajectory point
-            ctx.lineTo(tx, ty);
-
-            // Stop if out of bounds
-            if (ty > canvas.height || tx < 0 || tx > canvas.width) break;
-          }
-
-          ctx.stroke();
-
-          // Draw target indicator
-          if (collision) {
-            ctx.setLineDash([]);
-
-            // Outer pulsing circle
-            const pulse = (Math.sin(performance.now() / 120) + 1) / 2;
-            ctx.beginPath();
-            ctx.arc(tx, ty, 12 + pulse * 8, 0, Math.PI * 2);
-            ctx.strokeStyle = "rgba(79, 195, 247, 0.4)";
-            ctx.lineWidth = 2;
-            ctx.stroke();
-
-            // Inner solid circle
-            ctx.beginPath();
-            ctx.arc(tx, ty, 6, 0, Math.PI * 2);
-            ctx.fillStyle = "#4fc3f7";
-            ctx.fill();
-            ctx.strokeStyle = "#ffffff";
-            ctx.lineWidth = 2;
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
-      }
-
-      const bandColor = isPinching.current
-        ? "#ffd54f"
-        : "rgba(79, 195, 247, 0.4)";
-      if (!isFlying.current) {
-        // Left band with gradient
-        const leftGrad = ctx.createLinearGradient(
-          anchorPos.current.x - 35,
-          anchorPos.current.y - 10,
-          ballPos.current.x,
-          ballPos.current.y
-        );
-        leftGrad.addColorStop(0, "rgba(79, 195, 247, 0.6)");
-        leftGrad.addColorStop(1, bandColor);
-
-        ctx.beginPath();
-        ctx.moveTo(anchorPos.current.x - 35, anchorPos.current.y - 10);
-        ctx.lineTo(ballPos.current.x, ballPos.current.y);
-        ctx.lineWidth = 5;
-        ctx.strokeStyle = leftGrad;
-        ctx.lineCap = "round";
-        ctx.stroke();
-      }
-
-      ctx.save();
-      // Add glow effect to ball when pinching
-      if (isPinching.current) {
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = COLOR_CONFIG[selectedColorRef.current].hex;
-      }
-      drawBubble(
-        ctx,
-        ballPos.current.x,
-        ballPos.current.y,
-        BUBBLE_RADIUS,
-        selectedColorRef.current
+    bubbles.current.push(landed);
+
+    const outcome = resolveShot(bubbles.current, landed, comboRef.current);
+    if (outcome.popped.length > 0) {
+      comboRef.current = outcome.combo;
+      bestComboRef.current = Math.max(
+        bestComboRef.current,
+        Math.min(outcome.combo, MAX_MULTIPLIER)
       );
-      ctx.restore();
+      comboExpiry.current = simTime.current + 3000;
+      setCombo(outcome.combo);
+      setComboFlash(true);
+      window.setTimeout(() => setComboFlash(false), 400);
+      if (outcome.combo >= 3) vibrate([40, 25, 40, 25, 40]);
 
-      if (!isFlying.current) {
-        // Right band with gradient
-        const rightGrad = ctx.createLinearGradient(
-          ballPos.current.x,
-          ballPos.current.y,
-          anchorPos.current.x + 35,
-          anchorPos.current.y - 10
-        );
-        rightGrad.addColorStop(0, bandColor);
-        rightGrad.addColorStop(1, "rgba(79, 195, 247, 0.6)");
+      for (const b of [...outcome.popped, ...outcome.dropped]) {
+        createExplosion(b.x, b.y, COLOR_CONFIG[b.color].hex);
+      }
+      audioManager.playPop(Math.min(MAX_MULTIPLIER, outcome.combo));
 
-        ctx.beginPath();
-        ctx.moveTo(ballPos.current.x, ballPos.current.y);
-        ctx.lineTo(anchorPos.current.x + 35, anchorPos.current.y - 10);
-        ctx.lineWidth = 5;
-        ctx.strokeStyle = rightGrad;
-        ctx.lineCap = "round";
-        ctx.stroke();
+      scoreRef.current += outcome.points;
+      setScore(scoreRef.current);
+      if (outcome.fishFreed > 0) {
+        fishRef.current += outcome.fishFreed;
+        setFishFreed(fishRef.current);
+      }
+    } else {
+      resetCombo();
+    }
+
+    // Popped bubbles are only kept around until their explosion is spawned.
+    bubbles.current = bubbles.current.filter((b) => b.active);
+    advanceEndless();
+    resetBall();
+    checkOutcome();
+    if (!roundOverRef.current) deal();
+  }, [advanceEndless, checkOutcome, createExplosion, deal, resetBall, resetCombo]);
+
+  /** A shot that left the arena without hitting anything. */
+  const loseBall = useCallback(() => {
+    isFlying.current = false;
+    resetBall();
+    resetCombo();
+    advanceEndless();
+    checkOutcome();
+  }, [advanceEndless, checkOutcome, resetBall, resetCombo]);
+
+  const stepPhysics = useCallback(() => {
+    simTime.current += PHYSICS.fixedStepMs;
+    const now = simTime.current;
+    // Combo windows and flight time run on the simulation clock rather than
+    // wall time, so they pause with the game.
+    if (comboRef.current > 0 && comboExpiry.current && now > comboExpiry.current) {
+      resetCombo();
+    }
+
+    for (const b of bubbles.current) {
+      if ((b.age ?? 1) < 1) b.age = Math.min(1, (b.age ?? 0) + 0.12);
+    }
+
+    for (let i = particles.current.length - 1; i >= 0; i--) {
+      const p = particles.current[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.18;
+      p.vx *= 0.98;
+      p.life -= 0.028;
+      if (p.life <= 0) particles.current.splice(i, 1);
+    }
+
+    if (!isFlying.current) return;
+
+    if (now - flightStart.current > PHYSICS.maxFlightMs) {
+      loseBall();
+      return;
+    }
+
+    const layout = layoutRef.current;
+    const { hit, bounced } = stepBall(ball.current, bubbles.current, arenaBounds(layout));
+    if (bounced) audioManager.playWall();
+
+    if (hit) {
+      audioManager.playClick();
+      vibrate(12);
+      landBall();
+      return;
+    }
+
+    if (ball.current.y > layout.worldH + GRID.bubbleRadius) loseBall();
+  }, [landBall, loseBall, resetCombo]);
+
+  const fire = useCallback(
+    (dx: number, dy: number) => {
+      const v = launchVelocity(dx, dy);
+      const { anchor } = layoutRef.current;
+      // The shot leaves from the anchor, exactly where the preview starts.
+      ball.current = { x: anchor.x, y: anchor.y, vx: v.x, vy: v.y };
+      ballColor.current = live.current.selectedColor;
+      isFlying.current = true;
+      flightStart.current = simTime.current;
+      ballsUsedRef.current += 1;
+      setHasFired(true);
+
+      const level = live.current.currentLevel;
+      if (level) {
+        const remaining = Math.max(0, level.ballsLimit - ballsUsedRef.current);
+        setBallsRemaining(remaining);
+        live.current.ballsRemaining = remaining;
       }
 
-      // Ocean-themed slingshot
+      audioManager.playShoot();
+      vibrate(25);
+    },
+    []
+  );
+
+  /* ------------------------------------------------------------- Rendering */
+
+  const drawBubble = useCallback(
+    (
+      ctx: CanvasRenderingContext2D,
+      b: { x: number; y: number; color: BubbleColor; hasFish?: boolean; age?: number },
+      radius: number,
+      showSymbol: boolean
+    ) => {
+      const config = COLOR_CONFIG[b.color];
+      const settle = b.age === undefined ? 1 : Math.min(1, b.age);
+      const r = radius * (0.72 + 0.28 * settle);
+
+      const grad = ctx.createRadialGradient(b.x - r * 0.32, b.y - r * 0.34, r * 0.1, b.x, b.y, r);
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(0.22, config.hex);
+      grad.addColorStop(1, adjustColor(config.hex, -70));
+
       ctx.beginPath();
-      ctx.moveTo(anchorPos.current.x, canvas.height);
-      ctx.lineTo(anchorPos.current.x, anchorPos.current.y + 40);
-      ctx.lineTo(anchorPos.current.x - 40, anchorPos.current.y);
-      ctx.moveTo(anchorPos.current.x, anchorPos.current.y + 40);
-      ctx.lineTo(anchorPos.current.x + 40, anchorPos.current.y);
-      ctx.lineWidth = 10;
-      ctx.lineCap = "round";
-      ctx.strokeStyle = "#26c6da"; // Aqua ocean color
+      ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(255,255,255,0.28)";
+      ctx.lineWidth = 1;
       ctx.stroke();
 
-      for (let i = particles.current.length - 1; i >= 0; i--) {
-        const p = particles.current[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= 0.05;
-        if (p.life <= 0) particles.current.splice(i, 1);
-        else {
-          ctx.globalAlpha = p.life;
+      // Specular glint
+      ctx.beginPath();
+      ctx.ellipse(b.x - r * 0.3, b.y - r * 0.36, r * 0.26, r * 0.15, Math.PI / 4, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255,0.4)";
+      ctx.fill();
+
+      if (b.hasFish) {
+        ctx.save();
+        ctx.font = `${Math.round(r * 0.95)}px system-ui`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("🐠", b.x, b.y + 1);
+        ctx.restore();
+      } else if (showSymbol) {
+        ctx.save();
+        ctx.font = `bold ${Math.round(r * 0.8)}px Outfit, system-ui`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "rgba(255,255,255,0.8)";
+        ctx.fillText(config.symbol, b.x, b.y + 1);
+        ctx.restore();
+      }
+    },
+    []
+  );
+
+  const render = useCallback(
+    (ctx: CanvasRenderingContext2D) => {
+      const { settings: cfg } = live.current;
+      const layout = layoutRef.current;
+      const { arenaLeft, arenaWidth, dangerY, anchor: a, worldW, worldH } = layout;
+      ctx.clearRect(0, 0, worldW, worldH);
+
+      // Arena column — the walls the shot bounces off.
+      const columnGrad = ctx.createLinearGradient(0, 0, 0, worldH);
+      columnGrad.addColorStop(0, "rgba(79,195,247,0.07)");
+      columnGrad.addColorStop(1, "rgba(79,195,247,0)");
+      ctx.fillStyle = columnGrad;
+      ctx.fillRect(arenaLeft, 0, arenaWidth, worldH);
+
+      ctx.strokeStyle = "rgba(79,195,247,0.22)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(arenaLeft, 0);
+      ctx.lineTo(arenaLeft, worldH);
+      ctx.moveTo(arenaLeft + arenaWidth, 0);
+      ctx.lineTo(arenaLeft + arenaWidth, worldH);
+      ctx.stroke();
+
+      // Danger line
+      const close = lowestBubbleEdge(bubbles.current) > dangerY - GRID.rowHeight * 2;
+      ctx.save();
+      ctx.setLineDash([12, 10]);
+      ctx.strokeStyle = close ? "rgba(255,23,68,0.85)" : "rgba(255,107,157,0.35)";
+      ctx.lineWidth = 2;
+      if (close) {
+        ctx.shadowBlur = 14;
+        ctx.shadowColor = "rgba(255,23,68,0.8)";
+      }
+      ctx.beginPath();
+      ctx.moveTo(arenaLeft, dangerY);
+      ctx.lineTo(arenaLeft + arenaWidth, dangerY);
+      ctx.stroke();
+      ctx.restore();
+
+      for (const b of bubbles.current) {
+        if (b.active) drawBubble(ctx, b, GRID.bubbleRadius - 1, cfg.colorBlindSymbols);
+      }
+
+      // Trajectory preview — the same simulation the real shot runs.
+      if (isDragging.current && !isFlying.current && cfg.showTrajectory) {
+        const dx = a.x - ball.current.x;
+        const dy = a.y - ball.current.y;
+        const stretch = Math.hypot(dx, dy);
+
+        if (stretch > PHYSICS.minFireStretch) {
+          const powerRatio = Math.min(stretch / PHYSICS.maxDragDist, 1);
+          const { points, landing } = predictTrajectory(
+            a,
+            launchVelocity(dx, dy),
+            bubbles.current,
+            arenaBounds(layout),
+            worldH
+          );
+
+          ctx.save();
+          ctx.setLineDash([7, 9]);
+          ctx.lineWidth = 2.5;
+          ctx.strokeStyle = `rgba(155,231,255,${0.35 + powerRatio * 0.5})`;
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = "rgba(79,195,247,0.8)";
           ctx.beginPath();
-          ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
-          ctx.fillStyle = p.color;
-          ctx.fill();
-          ctx.globalAlpha = 1.0;
+          points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+          ctx.stroke();
+          ctx.restore();
+
+          if (landing) {
+            const pulse = (Math.sin(performance.now() / 140) + 1) / 2;
+            ctx.save();
+            ctx.strokeStyle = "rgba(79,195,247,0.5)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(landing.x, landing.y, 13 + pulse * 7, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.fillStyle = "#9be7ff";
+            ctx.beginPath();
+            ctx.arc(landing.x, landing.y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
         }
       }
+
+      // Slingshot frame
+      ctx.save();
+      ctx.strokeStyle = "rgba(38,198,218,0.9)";
+      ctx.lineWidth = 9;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(a.x, worldH);
+      ctx.lineTo(a.x, a.y + 42);
+      ctx.moveTo(a.x, a.y + 42);
+      ctx.lineTo(a.x - 40, a.y);
+      ctx.moveTo(a.x, a.y + 42);
+      ctx.lineTo(a.x + 40, a.y);
+      ctx.stroke();
       ctx.restore();
+
+      if (!isFlying.current) {
+        ctx.save();
+        ctx.strokeStyle = isDragging.current ? "#ffd54f" : "rgba(79,195,247,0.5)";
+        ctx.lineWidth = 5;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(a.x - 40, a.y);
+        ctx.lineTo(ball.current.x, ball.current.y);
+        ctx.lineTo(a.x + 40, a.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Projectile
+      if (!live.current.hasResult) {
+        const projectileColor = isFlying.current ? ballColor.current : live.current.selectedColor;
+        ctx.save();
+        if (isDragging.current) {
+          ctx.shadowBlur = 22;
+          ctx.shadowColor = COLOR_CONFIG[projectileColor].hex;
+        }
+        drawBubble(
+          ctx,
+          { x: ball.current.x, y: ball.current.y, color: projectileColor },
+          GRID.bubbleRadius,
+          cfg.colorBlindSymbols
+        );
+        ctx.restore();
+      }
+
+      for (const p of particles.current) {
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius * p.life, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    },
+    [drawBubble]
+  );
+
+  /* --------------------------------------------------- Input + master loop */
+
+  const hoverIdRef = useRef<string | null>(null);
+  const pressureRef = useRef(0);
+  const dwellRef = useRef(0);
+  const lastCursor = useRef({ x: -999, y: -999, pressed: false });
+
+  /** Cursor updates are gated so the loop does not queue a setState per frame. */
+  const setCursorState = useCallback((viewport: Point | null, pressed: boolean) => {
+    if (!viewport) {
+      if (lastCursor.current.x !== -999) {
+        lastCursor.current = { x: -999, y: -999, pressed: false };
+        setCursor(null);
+        setCursorPinching(false);
+      }
+      return;
+    }
+    const moved =
+      Math.abs(viewport.x - lastCursor.current.x) > 1 ||
+      Math.abs(viewport.y - lastCursor.current.y) > 1;
+    if (moved) setCursor({ x: viewport.x, y: viewport.y });
+    if (pressed !== lastCursor.current.pressed) setCursorPinching(pressed);
+    lastCursor.current = { x: viewport.x, y: viewport.y, pressed };
+  }, []);
+
+  const setDwell = useCallback((value: number) => {
+    // Quantised: the whole tree re-renders on change, so 5% steps are plenty.
+    const q = Math.round(value * 20) / 20;
+    if (q !== dwellRef.current) {
+      dwellRef.current = q;
+      setDwellProgress(q);
+    }
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const arena = arenaRef.current;
+    if (!canvas || !arena) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const resize = () => {
+      const cssW = arena.clientWidth || window.innerWidth;
+      const cssH = arena.clientHeight || window.innerHeight;
+      const dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
+      const prev = layoutRef.current;
+      const layout = computeLayout(cssW, cssH);
+      layoutRef.current = layout;
+      dprRef.current = dpr;
+
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
+
+      relayoutBubbles(bubbles.current, layout.arenaLeft);
+      if (isFlying.current) {
+        ball.current.x += layout.arenaLeft - prev.arenaLeft;
+      } else {
+        isDragging.current = false;
+        resetBall();
+      }
     };
 
-    // Initialize hand tracking for all devices
-    if (window.Hands) {
-      hands = new window.Hands({
-        locateFile: (file: string) =>
-          `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
-      });
-      hands.setOptions({
-        maxNumHands: 1,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5,
-      });
-      hands.onResults(onResults);
-      if (window.Camera) {
-        camera = new window.Camera(video, {
-          onFrame: async () => {
-            if (videoRef.current && hands)
-              await hands.send({ image: videoRef.current });
-          },
-          width: 1280,
-          height: 720,
-        });
-        camera.start();
-      }
+    resize();
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(resize);
+      observer.observe(arena);
     } else {
-      // Fallback: render loop without camera/hand tracking
-      setLoading(false);
-      let animationFrameId: number;
-      const renderLoop = () => {
-        onResults({ image: null });
-        animationFrameId = requestAnimationFrame(renderLoop);
-      };
-      renderLoop();
-      
-      return () => {
-        if (animationFrameId) cancelAnimationFrame(animationFrameId);
-      };
+      window.addEventListener("resize", resize);
     }
 
-    return () => {
-      if (camera) camera.stop();
-      if (hands) hands.close();
+    let raf = 0;
+    let last: number | null = null;
+    let accumulator = 0;
+
+    const clearHover = () => {
+      if (hoverIdRef.current !== null) {
+        hoverIdRef.current = null;
+        setHoveredId(null);
+      }
+      dwell.current = { id: null, start: 0, fired: false };
+      setDwell(0);
     };
-  }, [initGrid]);
+
+    const processUiGestures = (viewport: Point | null, pressed: boolean, now: number) => {
+      if (!viewport || isDragging.current) {
+        clearHover();
+        return;
+      }
+
+      // Hit-test like a real pointer would: only the topmost element counts,
+      // so controls covered by a dialog (or with pointer-events off) can't be
+      // pinched through it.
+      const top =
+        typeof document.elementFromPoint === "function"
+          ? document.elementFromPoint(viewport.x, viewport.y)
+          : null;
+      const found: string | null =
+        top?.closest<HTMLElement>("[data-gesture-id]")?.dataset.gestureId ?? null;
+
+      if (found !== hoverIdRef.current) {
+        hoverIdRef.current = found;
+        setHoveredId(found);
+        if (found) audioManager.playHover();
+      }
+
+      // Pinch-and-hold to activate: intent is explicit and progress is shown
+      // on the cursor.
+      if (found && pressed) {
+        if (dwell.current.id !== found) dwell.current = { id: found, start: now, fired: false };
+        const progress = Math.min(1, (now - dwell.current.start) / GESTURE.dwellMs);
+        setDwell(progress);
+
+        if (now - lastTickSound.current > 90 && progress < 1) {
+          lastTickSound.current = now;
+          audioManager.playDwellTick(progress);
+        }
+
+        if (progress >= 1 && !dwell.current.fired) {
+          dwell.current.fired = true;
+          awaitRelease.current = true;
+          audioManager.playClick();
+          vibrate(30);
+          setDwell(0);
+          gestureHandlers.current.get(found)?.();
+        }
+      } else {
+        if (dwell.current.id !== null) dwell.current = { id: null, start: 0, fired: false };
+        setDwell(0);
+      }
+    };
+
+    const frame = (now: number) => {
+      raf = requestAnimationFrame(frame);
+
+      // rAF timestamps and performance.now() use different clocks in some
+      // environments, so never let frame time run backwards.
+      const dt = last === null ? 0 : Math.max(0, Math.min(now - last, 120));
+      last = now;
+      const layout = layoutRef.current;
+
+      const sample = handSample.current;
+      const handFresh =
+        !!sample && performance.now() - sample.timestamp < GESTURE.staleMs;
+      const usingPointer = pointerInput.current.active && !handFresh;
+
+      /* -------- Resolve a single aim input from hand or pointer ---------- */
+      const rect = canvas.getBoundingClientRect();
+      let aim: Point | null = null;
+      let aimViewport: Point | null = null;
+      let pressed = false;
+      let source: "hand" | "pointer" | null = null;
+
+      if (handFresh && sample) {
+        source = "hand";
+        aim = { x: sample.point.x * layout.worldW, y: sample.point.y * layout.worldH };
+        aimViewport = {
+          x: rect.left + sample.point.x * rect.width,
+          y: rect.top + sample.point.y * rect.height,
+        };
+        pressed = sample.isPinching;
+      } else if (usingPointer) {
+        source = "pointer";
+        aim = {
+          x: (pointerInput.current.x - rect.left) / layout.scale,
+          y: (pointerInput.current.y - rect.top) / layout.scale,
+        };
+        aimViewport = { x: pointerInput.current.x, y: pointerInput.current.y };
+        pressed = pointerInput.current.down;
+      }
+
+      // Only seeing the hand open clears the latch. A tracking dropout (no
+      // hand, or the idle mouse taking over for a frame) must not.
+      if (source === "hand" && !pressed) awaitRelease.current = false;
+      const latched = source === "hand" && awaitRelease.current;
+
+      setCursorState(handFresh ? aimViewport : null, pressed);
+      processUiGestures(aimViewport, pressed && !latched, now);
+
+      /* --------------------------- Slingshot ---------------------------- */
+      const onGameScreen = live.current.screen === "game" && !live.current.hasResult;
+      // A drag only listens to the input that started it: if the hand drops
+      // out for a frame mid-pull, the idle mouse must not be read as a release.
+      const dragInputLost = isDragging.current && source !== dragSource.current;
+
+      if (onGameScreen && aim && !dragInputLost) {
+        handLostAt.current = 0;
+        const outOfAmmo =
+          live.current.ballsRemaining !== null && live.current.ballsRemaining <= 0;
+
+        if (pressed && !isFlying.current && !outOfAmmo && !latched) {
+          if (
+            !isDragging.current &&
+            !hoverIdRef.current &&
+            Math.hypot(aim.x - ball.current.x, aim.y - ball.current.y) < GESTURE.grabRadius
+          ) {
+            isDragging.current = true;
+            dragSource.current = source;
+            aimHistory.current = [];
+            vibrate(18);
+          }
+
+          if (isDragging.current) {
+            const p = clampDrag(aim, layout.anchor);
+            ball.current.x = p.x;
+            ball.current.y = p.y;
+            aimHistory.current.push({ ...p, t: now });
+            while (aimHistory.current.length && now - aimHistory.current[0].t > 400) {
+              aimHistory.current.shift();
+            }
+          }
+        } else if (isDragging.current) {
+          isDragging.current = false;
+          // Hand releases aim from just before the fingers opened; a mouse
+          // release is crisp, so it aims from where it is.
+          const from =
+            (source === "hand" && pickReleasePoint(aimHistory.current, now)) || ball.current;
+          aimHistory.current = [];
+
+          const dx = layout.anchor.x - from.x;
+          const dy = layout.anchor.y - from.y;
+          if (Math.hypot(dx, dy) > PHYSICS.minFireStretch) fire(dx, dy);
+          else resetBall();
+        }
+      } else if (isDragging.current) {
+        // The hand left the frame mid-pull: hold briefly, then let go safely.
+        if (!handLostAt.current) handLostAt.current = now;
+        else if (now - handLostAt.current > GESTURE.dragLostMs || !onGameScreen) {
+          isDragging.current = false;
+          aimHistory.current = [];
+          resetBall();
+        }
+      }
+
+      if (!isDragging.current && !isFlying.current) {
+        // Ease the idle ball back onto the anchor.
+        ball.current.x += (layout.anchor.x - ball.current.x) * 0.18;
+        ball.current.y += (layout.anchor.y - ball.current.y) * 0.18;
+      }
+
+      /* --------------------------- Fixed-step sim ----------------------- */
+      accumulator += dt;
+      let guard = 0;
+      while (accumulator >= PHYSICS.fixedStepMs && guard < 5) {
+        if (onGameScreen) stepPhysics();
+        accumulator -= PHYSICS.fixedStepMs;
+        guard++;
+      }
+      if (accumulator > PHYSICS.fixedStepMs * 5) accumulator = 0;
+
+      /* ------------------------------ Draw ------------------------------ */
+      const k = dprRef.current * layout.scale;
+      ctx.setTransform(k, 0, 0, k, 0, 0);
+      if (live.current.screen === "game") {
+        render(ctx);
+        const next = computePressure(bubbles.current, layout);
+        if (Math.abs(next - pressureRef.current) > 0.02) {
+          pressureRef.current = next;
+          setPressure(next);
+        }
+      } else {
+        ctx.clearRect(0, 0, layout.worldW, layout.worldH);
+      }
+    };
+
+    raf = requestAnimationFrame(frame);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      observer?.disconnect();
+      window.removeEventListener("resize", resize);
+    };
+  }, [fire, render, resetBall, setCursorState, setDwell, stepPhysics]);
+
+  /* ------------------------------------------------------- Hand tracking */
+
+  const lastQuality = useRef(-1);
+  const lastRatio = useRef(-1);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const drawPip = (landmarks: Landmark[] | null, pinching: boolean) => {
+      const pip = pipCanvasRef.current;
+      const pctx = pip?.getContext("2d");
+      if (!pip || !pctx) return;
+      pctx.save();
+      // Mirrored, so the preview behaves like a mirror for the player.
+      pctx.translate(pip.width, 0);
+      pctx.scale(-1, 1);
+      pctx.globalAlpha = 0.7;
+      if (video.readyState >= 2) pctx.drawImage(video, 0, 0, pip.width, pip.height);
+      else pctx.clearRect(0, 0, pip.width, pip.height);
+      pctx.globalAlpha = 1;
+
+      if (landmarks) {
+        pctx.strokeStyle = pinching ? "#26c6da" : "rgba(155,231,255,0.75)";
+        pctx.lineWidth = 2;
+        pctx.beginPath();
+        for (const [from, to] of HAND_CONNECTIONS) {
+          pctx.moveTo(landmarks[from].x * pip.width, landmarks[from].y * pip.height);
+          pctx.lineTo(landmarks[to].x * pip.width, landmarks[to].y * pip.height);
+        }
+        pctx.stroke();
+        pctx.fillStyle = pinching ? "#ffffff" : "#4fc3f7";
+        for (const p of landmarks) {
+          pctx.beginPath();
+          pctx.arc(p.x * pip.width, p.y * pip.height, 2, 0, Math.PI * 2);
+          pctx.fill();
+        }
+      }
+      pctx.restore();
+    };
+
+    const onHands = (lm: Landmark[] | null) => {
+      if (!lm || !isValidHand(lm)) {
+        handSample.current = null;
+        handFilter.current.reset();
+        setHandDetected(false);
+        if (lastQuality.current !== 0) {
+          lastQuality.current = 0;
+          setTrackingQualityLevel(0);
+        }
+        drawPip(null, false);
+        return;
+      }
+
+      const now = performance.now();
+      const ratio = pinchRatio(lm);
+      const isPinching = detectPinch(
+        ratio,
+        handSample.current?.isPinching ?? false,
+        live.current.settings.pinchSensitivity
+      );
+      const point = cameraToScreen(handFilter.current.filter(pinchMidpoint(lm), now));
+      const quality = trackingQuality(lm);
+
+      handSample.current = { point, pinchRatio: ratio, isPinching, quality, timestamp: now };
+      setHandDetected(true);
+
+      // Only push to React what the UI can actually show, at the precision it
+      // shows it — not a full re-render per camera frame.
+      const q = Math.round(quality * 10) / 10;
+      if (q !== lastQuality.current) {
+        lastQuality.current = q;
+        setTrackingQualityLevel(q);
+      }
+      if (live.current.screen === "settings") {
+        const r = Math.round(ratio * 100) / 100;
+        if (r !== lastRatio.current) {
+          lastRatio.current = r;
+          setLivePinchRatio(r);
+        }
+      }
+      drawPip(lm, isPinching);
+    };
+
+    return startHandTracking(video, {
+      onHands,
+      onStatus: (status) => {
+        setTrackerStatus(status);
+        if (isTrackerFailure(status)) {
+          handSample.current = null;
+          setHandDetected(false);
+        }
+      },
+    });
+  }, []);
+
+  /* -------------------------------------------------------- Pointer input */
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      pointerInput.current.x = e.clientX;
+      pointerInput.current.y = e.clientY;
+      pointerInput.current.active = true;
+    };
+    const onDown = (e: PointerEvent) => {
+      audioManager.unlock();
+      pointerInput.current.x = e.clientX;
+      pointerInput.current.y = e.clientY;
+      pointerInput.current.active = true;
+      // Only a press on the play surface drives the slingshot; DOM controls
+      // keep their native click handling.
+      if ((e.target as HTMLElement | null)?.dataset?.playSurface !== undefined) {
+        pointerInput.current.down = true;
+      }
+    };
+    const onUp = () => {
+      pointerInput.current.down = false;
+    };
+    const onKey = () => audioManager.unlock();
+    const onVisibility = () => {
+      audioManager.setHidden(document.hidden);
+      if (document.hidden) pointerInput.current.down = false;
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  /* ------------------------------------------------------------ Callbacks */
+
+  const goHome = useCallback(() => {
+    setScreen("home");
+    setResult(null);
+    setRoundActive(false);
+    isDragging.current = false;
+    audioManager.stopAmbient();
+    audioManager.playClick();
+  }, []);
+
+  const openSettings = useCallback((from: "home" | "game") => {
+    setSettingsReturn(from);
+    setScreen("settings");
+    isDragging.current = false;
+    audioManager.playClick();
+  }, []);
+
+  /** Settings opened mid-round return to the paused round, not the menu. */
+  const closeSettings = useCallback(() => {
+    if (settingsReturn === "game" && roundActive) {
+      setScreen("game");
+      audioManager.playClick();
+    } else {
+      goHome();
+    }
+  }, [goHome, roundActive, settingsReturn]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (screen === "settings") closeSettings();
+      else if (screen === "levels" || (screen === "game" && !result)) goHome();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [closeSettings, goHome, result, screen]);
+
+  const handleSelectColor = useCallback((color: BubbleColor) => {
+    setSelectedColor(color);
+    live.current.selectedColor = color;
+    audioManager.playClick();
+    vibrate(12);
+  }, []);
+
+  const nextLevel = useMemo(() => {
+    if (!result?.levelId) return null;
+    const index = LEVELS.findIndex((l) => l.id === result.levelId);
+    return index >= 0 ? LEVELS[index + 1] ?? null : null;
+  }, [result?.levelId]);
+
+  const depthFactor = currentLevel ? currentLevel.depth / 1000 : 0.25;
+  const biome = currentLevel?.biome ?? "#4fc3f7";
+  const showStatusPill = screen !== "game" && trackerStatus !== "running";
+
+  /* ----------------------------------------------------------------- View */
 
   return (
-    <div className="flex w-full h-screen bg-gradient-to-b from-[#001F3F] via-[#003d5c] to-[#00263d] overflow-hidden font-roboto text-[#e3e3e3] relative">
-
-      {/* Animated Water Bubbles Background */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-        <div
-          className="bubble-float"
-          style={{ left: "10%", animationDelay: "0s" }}
-        />
-        <div
-          className="bubble-float"
-          style={{ left: "20%", animationDelay: "2s" }}
-        />
-        <div
-          className="bubble-float"
-          style={{ left: "35%", animationDelay: "4s" }}
-        />
-        <div
-          className="bubble-float"
-          style={{ left: "50%", animationDelay: "1s" }}
-        />
-        <div
-          className="bubble-float"
-          style={{ left: "65%", animationDelay: "3s" }}
-        />
-        <div
-          className="bubble-float"
-          style={{ left: "80%", animationDelay: "5s" }}
-        />
-        <div
-          className="bubble-float"
-          style={{ left: "90%", animationDelay: "2.5s" }}
-        />
-      </div>
-
+    <GestureProvider value={gestureValue}>
       <div
-        ref={gameContainerRef}
-        className="flex-1 relative h-full overflow-hidden z-10"
+        className={`relative h-full w-full overflow-hidden bg-abyss-950 ${
+          settings.reduceMotion ? "reduce-motion" : ""
+        }`}
       >
-        <video ref={videoRef} className="absolute hidden" playsInline />
-        <canvas ref={canvasRef} className="absolute inset-0" />
+        <OceanBackdrop
+          depth={screen === "game" ? depthFactor : 0.2}
+          accent={screen === "game" ? biome : "#4fc3f7"}
+          bubbleCount={settings.reduceMotion ? 0 : 18}
+          showShafts={!settings.reduceMotion}
+        />
 
-        <button
-          onClick={() => setIsMuted(!isMuted)}
-          className="absolute top-6 right-6 z-50 bg-[#003d5c]/80 p-3 rounded-full border border-[#4fc3f7]/30 hover:bg-[#004d6d] transition-all shadow-lg backdrop-blur-sm"
-        >
-          {isMuted ? (
-            <VolumeX className="w-5 h-5 text-[#ff6b9d]" />
-          ) : (
-            <Volume2 className="w-5 h-5 text-[#4fc3f7]" />
+        {/* Tracking source. Kept mounted on every screen and visually hidden;
+            the corner preview paints its frames onto a canvas. */}
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0"
+        />
+
+        <div ref={arenaRef} className="absolute inset-0">
+          <canvas
+            ref={canvasRef}
+            data-play-surface=""
+            data-testid="play-surface"
+            aria-label="Bubble shooter board"
+            role="img"
+            className={`absolute inset-0 z-10 h-full w-full touch-none ${
+              screen === "game" ? "cursor-crosshair" : "pointer-events-none"
+            }`}
+          />
+
+          {/* ---------------------------------------------------- Screens */}
+          {screen === "home" && (
+            <HomeScreen
+              saved={saved}
+              onQuickStart={() => beginRound(null)}
+              onLevels={() => {
+                setScreen("levels");
+                audioManager.playClick();
+              }}
+              onSettings={() => openSettings("home")}
+            />
           )}
-        </button>
 
-        {loading && screen === "game" && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-[#001F3F] to-[#00263d] z-50">
-            <div className="flex flex-col items-center">
-              <Loader2 className="w-12 h-12 text-[#4fc3f7] animate-spin mb-4" />
-              <p className="text-[#e3e3e3] text-lg font-medium">
-                Diving into the Ocean...
-              </p>
-            </div>
-          </div>
-        )}
+          {screen === "levels" && (
+            <LevelsScreen
+              progress={saved.progress}
+              onBack={goHome}
+              onSelect={(level) => {
+                if (!saved.progress[level.id]?.unlocked) return;
+                beginRound(level);
+              }}
+            />
+          )}
 
-        {/* Home Screen with Tutorial Guide */}
-        {screen === "home" && !loading && (
-          <>
-            {/* Tutorial Guide - Top Right Corner */}
-            <div className="absolute top-8 right-8 z-40 max-w-xs">
-              <div className="bg-[#001F3F]/90 backdrop-blur-md rounded-[24px] p-4 border border-[#4fc3f7]/30">
-                <h2 className="text-lg font-bold text-[#4fc3f7] mb-2 flex items-center gap-2">
-                  📖 How to Play
-                </h2>
-                <div className="space-y-1.5 text-[#c4c7c5] text-xs leading-relaxed">
-                  <p>
-                    👆 <span className="text-white font-semibold">Pinch</span>{" "}
-                    near button
-                  </p>
-                  <p>
-                    🤏{" "}
-                    <span className="text-white font-semibold">Hold pinch</span>{" "}
-                    to select
-                  </p>
-                  <p>
-                    🎯{" "}
-                    <span className="text-white font-semibold">
-                      Pinch & pull
-                    </span>{" "}
-                    to shoot
-                  </p>
-                  <p>
-                    🐠{" "}
-                    <span className="text-white font-semibold">Match 3+</span>{" "}
-                    to rescue fish
-                  </p>
-                </div>
+          {screen === "settings" && (
+            <SettingsScreen
+              settings={settings}
+              onChange={patchSettings}
+              onBack={closeSettings}
+              onResetProgress={() =>
+                // Progress only: audio, calibration and accessibility stay.
+                setSaved((prev) => ({ ...defaultState(), settings: prev.settings }))
+              }
+              livePinchRatio={livePinchRatio}
+              handDetected={handDetected}
+            />
+          )}
+
+          {/* ------------------------------------------------- Game chrome */}
+          {screen === "game" && (
+            <>
+              {/* Top-left: score, objective and combo — kept off the board. */}
+              <div className="absolute left-4 top-4 z-30 flex w-56 flex-col gap-3 md:left-6 md:top-6">
+                <ScoreCard score={score} highScore={saved.highScore} />
+                <ObjectiveCard level={currentLevel} fishFreed={fishFreed} />
+                <ComboBadge
+                  combo={combo}
+                  multiplier={Math.min(combo, MAX_MULTIPLIER)}
+                  flash={comboFlash}
+                />
               </div>
-            </div>
 
-            <div className="absolute inset-0 z-50 flex items-center justify-center">
-              <div className="text-center max-w-2xl px-8">
-                <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#4fc3f7] to-[#ff6b9d] mb-4 animate-pulse">
-                  Ocean Bubble Shooter
-                </h1>
-                <p className="text-xl text-[#c4c7c5] mb-12">
-                  🐟 Rescue the Fish with Hand Gestures 🐟
-                </p>
-
-                <div className="flex flex-col gap-4">
-                  <button
-                    data-menu-button="quickstart"
-                    className="group bg-gradient-to-r from-[#4fc3f7] to-[#26c6da] px-12 py-5 rounded-[24px] text-white text-xl font-bold transition-all shadow-lg relative overflow-hidden"
+              {/* Top-right: camera + controls */}
+              <div className="absolute right-4 top-4 z-30 flex flex-col items-end gap-3 md:right-6 md:top-6">
+                <div className="flex gap-2">
+                  <GestureButton
+                    id="hud:home"
+                    onActivate={goHome}
+                    className="glass grid h-10 w-10 place-items-center rounded-2xl"
+                    title="Back to menu"
                   >
-                    <Play className="inline w-6 h-6 mr-2" />
-                    Quick Start
-                    <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-
-                  <button
-                    data-menu-button="levels"
-                    className="group bg-gradient-to-r from-[#7e57c2] to-[#9c27b0] px-12 py-5 rounded-[24px] text-white text-xl font-bold transition-all shadow-lg relative overflow-hidden"
+                    <Home className="h-4 w-4 text-glow-cyan" />
+                  </GestureButton>
+                  <GestureButton
+                    id="hud:mute"
+                    onActivate={() => patchSettings({ muted: !settings.muted })}
+                    className="glass grid h-10 w-10 place-items-center rounded-2xl"
+                    title={settings.muted ? "Unmute" : "Mute"}
                   >
-                    <Star className="inline w-6 h-6 mr-2" />
-                    Levels
-                    <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-
-                  <button
-                    data-menu-button="settings"
-                    className="group bg-gradient-to-r from-[#ffab40] to-[#ff6b9d] px-12 py-5 rounded-[24px] text-white text-xl font-bold transition-all shadow-lg relative overflow-hidden"
+                    {settings.muted ? (
+                      <VolumeX className="h-4 w-4 text-glow-coral" />
+                    ) : (
+                      <Volume2 className="h-4 w-4 text-glow-cyan" />
+                    )}
+                  </GestureButton>
+                  <GestureButton
+                    id="hud:settings"
+                    onActivate={() => openSettings("game")}
+                    className="glass grid h-10 w-10 place-items-center rounded-2xl"
+                    title="Settings"
                   >
-                    <SettingsIcon className="inline w-6 h-6 mr-2" />
-                    Settings
-                    <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
+                    <SettingsIcon className="h-4 w-4 text-glow-cyan" />
+                  </GestureButton>
                 </div>
-              </div>
-            </div>
-          </>
-        )}
 
-        {/* Levels Screen */}
-        {screen === "levels" && !loading && (
-          <div className="absolute inset-0 z-50 overflow-y-auto p-8">
-            <button
-              onClick={() => setScreen("home")}
-              className="mb-6 bg-[#003d5c]/80 px-4 py-2 rounded-full border border-[#4fc3f7]/30 hover:bg-[#004d6d] transition-all flex items-center gap-2"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              Back
-            </button>
-
-            <h2 className="text-4xl font-black text-center text-transparent bg-clip-text bg-gradient-to-r from-[#4fc3f7] to-[#ff6b9d] mb-8">
-              Choose Your Level
-            </h2>
-
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 max-w-6xl mx-auto">
-              {levels.map((level) => (
-                <button
-                  key={level.id}
-                  onClick={() => startLevel(level)}
-                  disabled={!level.unlocked}
-                  className={`relative p-6 rounded-[20px] border-2 transition-all ${
-                    level.unlocked
-                      ? "bg-gradient-to-br from-[#003d5c] to-[#004d6d] border-[#4fc3f7]/40 hover:scale-105 hover:shadow-[0_0_20px_rgba(79,195,247,0.4)] cursor-pointer"
-                      : "bg-[#002840]/50 border-[#4fc3f7]/10 opacity-50 cursor-not-allowed"
-                  }`}
-                >
-                  {!level.unlocked && (
-                    <Lock className="absolute top-2 right-2 w-5 h-5 text-[#ff6b9d]" />
-                  )}
-                  <div className="text-3xl font-black text-white mb-2">
-                    {level.id}
-                  </div>
-                  <div className="text-sm font-bold text-[#4fc3f7] mb-3">
-                    {level.name}
-                  </div>
-                  <div className="text-xs text-[#c4c7c5] space-y-1">
-                    <div className="flex items-center gap-1 justify-center">
-                      <Fish className="w-4 h-4 text-[#ffab40]" />
-                      <span>{level.fishCount}</span>
-                    </div>
-                    <div className="flex items-center gap-1 justify-center">
-                      <Target className="w-4 h-4 text-[#ff6b9d]" />
-                      <span>{level.ballsLimit}</span>
-                    </div>
-                  </div>
-                  {level.stars > 0 && (
-                    <div className="flex justify-center gap-1 mt-2">
-                      {[...Array(level.stars)].map((_, i) => (
-                        <Star
-                          key={i}
-                          className="w-4 h-4 text-[#ffd54f] fill-current"
-                        />
-                      ))}
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Settings Screen */}
-        {screen === "settings" && !loading && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center p-8">
-            <div className="bg-[#003d5c]/90 backdrop-blur-md p-10 rounded-[32px] border border-[#4fc3f7]/40 max-w-md w-full">
-              <button
-                onClick={() => setScreen("home")}
-                className="mb-6 bg-[#004d6d] px-4 py-2 rounded-full border border-[#4fc3f7]/30 hover:bg-[#005d7d] transition-all flex items-center gap-2"
-              >
-                <ArrowLeft className="w-5 h-5" />
-                Back
-              </button>
-
-              <h2 className="text-3xl font-black text-center text-white mb-8">
-                Settings
-              </h2>
-
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-lg font-bold text-[#c4c7c5] mb-3">
-                    Volume
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={volume}
-                    onChange={(e) => {
-                      const val = parseFloat(e.target.value);
-                      setVolume(val);
-                      audioManager.setVolume(val);
-                    }}
-                    className="w-full h-2 bg-[#004d6d] rounded-lg appearance-none cursor-pointer accent-[#4fc3f7]"
+                {settings.showCamera && inputMode === "hand" && (
+                  <CameraPip
+                    overlayRef={pipCanvasRef}
+                    quality={trackingQualityLevel}
+                    handDetected={handDetected}
+                    inputMode={inputMode}
+                    cameraEnabled={settings.showCamera}
                   />
-                  <div className="flex justify-between text-sm text-[#c4c7c5] mt-2">
-                    <span>0%</span>
-                    <span className="font-bold text-[#4fc3f7]">
-                      {Math.round(volume * 100)}%
-                    </span>
-                    <span>100%</span>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setIsMuted(!isMuted)}
-                  className="w-full bg-gradient-to-r from-[#ff6b9d] to-[#ff6b9d]/80 px-6 py-4 rounded-[20px] text-white font-bold hover:scale-105 transition-all flex items-center justify-center gap-3"
-                >
-                  {isMuted ? (
-                    <VolumeX className="w-6 h-6" />
-                  ) : (
-                    <Volume2 className="w-6 h-6" />
-                  )}
-                  {isMuted ? "Unmute" : "Mute"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {isGameOver && (
-          <div className="absolute inset-0 bg-[#001F3F]/90 z-[60] flex items-center justify-center backdrop-blur-md animate-in fade-in duration-500">
-            <div className="bg-[#003d5c] p-10 rounded-[40px] border border-[#ff6b9d]/30 shadow-[0_0_50px_rgba(255,107,157,0.2)] flex flex-col items-center text-center max-w-sm">
-              <div className="w-20 h-20 bg-[#ff6b9d]/20 rounded-full flex items-center justify-center mb-6">
-                <XCircle className="w-12 h-12 text-[#ff6b9d]" />
-              </div>
-              <h2 className="text-4xl font-black text-white mb-2 tracking-tight">
-                GAME OVER
-              </h2>
-              <p className="text-[#c4c7c5] mb-4 leading-relaxed italic font-light">
-                {currentLevel
-                  ? fishFreed >= currentLevel.fishCount
-                    ? "🎉 All Fish Rescued!"
-                    : `Only ${fishFreed}/${currentLevel.fishCount} fish rescued`
-                  : "The bubbles reached the surface!"}
-              </p>
-
-              <div className="bg-black/20 w-full py-4 px-6 rounded-2xl mb-4 border border-white/5">
-                <p className="text-xs text-[#4fc3f7]/70 uppercase tracking-widest font-bold mb-1">
-                  Final Score
-                </p>
-                <p className="text-4xl font-bold text-[#4fc3f7]">
-                  {score.toLocaleString()}
-                </p>
+                )}
               </div>
 
-              {currentLevel && (
-                <div className="bg-black/20 w-full py-3 px-6 rounded-2xl mb-6 border border-white/5">
-                  <p className="text-xs text-[#ffab40]/70 uppercase tracking-widest font-bold mb-1">
-                    Fish Rescued
+              {/* Left rail: depth pressure */}
+              <div className="absolute bottom-1/4 left-4 z-30 hidden md:left-8 lg:block">
+                <DangerGauge pressure={pressure} />
+              </div>
+
+              {/* Bottom: ammo + colours */}
+              <div className="absolute bottom-5 left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-3 md:bottom-7">
+                <AmmoGauge remaining={ballsRemaining ?? 0} limit={currentLevel?.ballsLimit ?? null} />
+                <ColorSelector
+                  pair={colorPair}
+                  selected={selectedColor}
+                  nextColor={nextColor}
+                  showSymbols={settings.colorBlindSymbols}
+                  onSelect={handleSelectColor}
+                  disabled={result !== null}
+                />
+                {!hasFired && (
+                  <p className="animate-pulse text-[11px] font-semibold uppercase tracking-[0.18em] text-white/35">
+                    {inputMode === "hand" && handDetected
+                      ? "Pinch near the bubble, pull back, release"
+                      : "Drag from the bubble and release"}
                   </p>
-                  <p className="text-2xl font-bold text-[#ffab40]">
-                    {fishFreed}/{currentLevel.fishCount}
-                  </p>
-                </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* ----------------------------------------------------- Result */}
+          {result && (
+            <ResultModal
+              result={result}
+              hasNextLevel={nextLevel !== null}
+              onRetry={() => beginRound(currentLevel)}
+              onNextLevel={() => nextLevel && beginRound(nextLevel)}
+              onHome={goHome}
+            />
+          )}
+
+          {/* ---------------------------------------- Tracking status pill */}
+          {showStatusPill && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="glass absolute bottom-4 left-1/2 z-40 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2 text-[11px] font-semibold"
+              style={{ color: trackerStatus === "loading" ? "#9be7ff" : "#ffab40" }}
+            >
+              {trackerStatus === "loading" && (
+                <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-glow-cyan" />
               )}
-
-              <div className="flex gap-3">
-                <button
-                  onClick={resetGame}
-                  className="flex items-center gap-2 bg-gradient-to-r from-[#ff6b9d] to-[#ff8fab] text-white px-8 py-4 rounded-full font-bold hover:scale-105 active:scale-95 transition-all shadow-xl hover:shadow-2xl"
-                >
-                  <RefreshCw className="w-6 h-6" />
-                  Restart Game
-                </button>
-              </div>
+              <span>{describeStatus(trackerStatus)}</span>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Game UI - Only show when screen is 'game' */}
-        {screen === "game" && (
-          <>
-            {/* Level Progress UI */}
-            {currentLevel && (
-              <div className="absolute top-4 right-20 md:top-6 md:right-24 z-40 flex gap-2">
-                <div className="bg-[#003d5c]/90 p-2 md:p-3 rounded-[16px] md:rounded-[20px] border border-[#ff6b9d]/40 shadow-2xl flex items-center gap-2 backdrop-blur-sm">
-                  <Target className="w-4 h-4 md:w-5 md:h-5 text-[#ff6b9d]" />
-                  <div>
-                    <p className="text-[8px] md:text-[10px] text-[#c4c7c5] uppercase tracking-wider font-medium">
-                      Balls
-                    </p>
-                    <p className="text-base md:text-lg font-bold text-white">
-                      {ballsRemaining}
-                    </p>
-                  </div>
-                </div>
-                <div className="bg-[#003d5c]/90 p-2 md:p-3 rounded-[16px] md:rounded-[20px] border border-[#ffab40]/40 shadow-2xl flex items-center gap-2 backdrop-blur-sm">
-                  <Fish className="w-4 h-4 md:w-5 md:h-5 text-[#ffab40]" />
-                  <div>
-                    <p className="text-[8px] md:text-[10px] text-[#c4c7c5] uppercase tracking-wider font-medium">
-                      Fish
-                    </p>
-                    <p className="text-base md:text-lg font-bold text-white">
-                      {fishFreed}/{currentLevel.fishCount}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="absolute top-4 left-4 md:top-6 md:left-6 z-40">
-              <div className="bg-[#003d5c]/90 p-3 md:p-5 rounded-[20px] md:rounded-[28px] border border-[#4fc3f7]/40 shadow-2xl flex items-center gap-2 md:gap-4 min-w-[140px] md:min-w-[180px] backdrop-blur-sm">
-                <div className="bg-[#4fc3f7]/20 p-2 md:p-3 rounded-full">
-                  <Trophy className="w-4 h-4 md:w-6 md:h-6 text-[#4fc3f7]" />
-                </div>
-                <div>
-                  <p className="text-[10px] md:text-xs text-[#c4c7c5] uppercase tracking-wider font-medium">
-                    Score
-                  </p>
-                  <p className="text-xl md:text-3xl font-bold text-white">
-                    {score.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-
-              {/* Combo Display */}
-              {currentCombo > 0 && (
-                <div
-                  className={`mt-3 md:mt-4 bg-gradient-to-r from-[#ffab40] to-[#ff6b9d] p-3 md:p-4 rounded-[18px] md:rounded-[24px] border-2 border-white/30 shadow-2xl transition-all duration-300 ${
-                    showComboText ? "animate-bounce scale-110" : "scale-100"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 md:gap-3">
-                    <Zap className="w-4 h-4 md:w-5 md:h-5 text-white animate-pulse" />
-                    <div>
-                      <p className="text-[8px] md:text-[10px] text-white/80 uppercase tracking-widest font-bold">
-                        Combo Chain
-                      </p>
-                      <p className="text-xl md:text-2xl font-black text-white">
-                        {comboMultiplier}x
-                      </p>
-                    </div>
-                  </div>
-                  {showComboText && (
-                    <div className="mt-2 text-center">
-                      <p className="text-[10px] md:text-xs font-black text-white animate-pulse">
-                        {comboMultiplier >= 5
-                          ? "🔥 LEGENDARY!"
-                          : comboMultiplier >= 4
-                          ? "⚡ AMAZING!"
-                          : comboMultiplier >= 3
-                          ? "💥 GREAT!"
-                          : "✨ NICE!"}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2 z-40">
-              <div
-                className={`bg-[#003d5c]/30 backdrop-blur-md px-4 md:px-8 py-3 md:py-5 rounded-[24px] md:rounded-[32px] border border-[#4fc3f7]/30 shadow-2xl flex items-center gap-4 md:gap-6 transition-opacity duration-300 ${
-                  isGameOver ? "opacity-20 pointer-events-none" : "opacity-100"
-                }`}
-              >
-                <p className="text-[10px] md:text-xs text-[#c4c7c5] uppercase font-bold tracking-wider hidden sm:block">
-                  Choose
-                </p>
-                {colorPair.map((color) => {
-                  const isSelected = selectedColor === color;
-                  const isHovered = hoveredColor === color;
-                  const config = COLOR_CONFIG[color];
-                  return (
-                    <button
-                      key={color}
-                      data-color-button={color}
-                      onClick={() => handleColorSelect(color)}
-                      className={`relative w-12 h-12 md:w-16 md:h-16 rounded-full transition-all duration-200 transform flex items-center justify-center 
-                              ${
-                                isSelected
-                                  ? "scale-125 ring-4 md:ring-[6px] ring-white/80 z-10"
-                                  : isHovered
-                                  ? "scale-115 ring-3 md:ring-[5px] ring-[#4fc3f7]/80 z-[5]"
-                                  : "hover:scale-110 opacity-60"
-                              }`}
-                      style={{
-                        background: `radial-gradient(circle at 35% 35%, ${
-                          config.hex
-                        }, ${adjustColor(config.hex, -60)})`,
-                        boxShadow: isSelected
-                          ? `0 0 30px ${config.hex}, inset 0 -5px 5px rgba(0,0,0,0.3)`
-                          : isHovered
-                          ? `0 0 20px ${config.hex}, inset 0 -4px 4px rgba(0,0,0,0.3)`
-                          : "0 4px 6px rgba(0,0,0,0.3), inset 0 -4px 4px rgba(0,0,0,0.3)",
-                      }}
-                    >
-                      <div className="absolute top-1 left-2 md:top-2 md:left-3 w-4 h-2 md:w-5 md:h-2 bg-white/50 rounded-full transform -rotate-45 filter blur-[1px]" />
-
-                      {isSelected && (
-                        <MousePointerClick className="w-5 h-5 md:w-7 md:h-7 text-white/90 drop-shadow-md" />
-                      )}
-                      {!isSelected && isHovered && (
-                        <div className="flex items-center justify-center">
-                          <div className="w-3 h-3 md:w-4 md:h-4 bg-[#4fc3f7] rounded-full animate-ping absolute" />
-                          <div className="w-3 h-3 md:w-4 md:h-4 bg-[#4fc3f7] rounded-full" />
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            {!isPinching.current && !isFlying.current && !isGameOver && (
-              <div className="absolute bottom-20 md:bottom-28 left-1/2 -translate-x-1/2 z-30 pointer-events-none opacity-50">
-                <div className="flex items-center gap-2 bg-[#003d5c]/90 px-3 md:px-4 py-1.5 md:py-2 rounded-full border border-[#4fc3f7]/40 backdrop-blur-sm">
-                  <Play className="w-3 h-3 text-[#4fc3f7] fill-current" />
-                  <p className="text-[#e3e3e3] text-[10px] md:text-xs font-medium">
-                    Pinch & Pull to Shoot
-                  </p>
-                </div>
-              </div>
-            )}
-          </>
-        )}
+        <GestureCursor
+          position={cursor}
+          isPinching={cursorPinching}
+          dwellProgress={dwellProgress}
+          visible={inputMode === "hand" && handDetected}
+        />
       </div>
-    </div>
+    </GestureProvider>
   );
+};
+
+const vibrate = (pattern: number | number[]) => {
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    try {
+      navigator.vibrate(pattern);
+    } catch {
+      /* unsupported */
+    }
+  }
 };
 
 export default OceanBubbles;
